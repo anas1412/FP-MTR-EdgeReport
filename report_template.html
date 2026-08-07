@@ -362,8 +362,9 @@
       <div class="value" id="sWr">55.4%</div>
     </div>
     <div class="stat">
-      <div class="label">Avg Return / Trade</div>
+      <div class="label">Avg Profit / Trade</div>
       <div class="value pos" id="sAvg">+4.20</div>
+      <div class="sub">winners only, above 0.2%</div>
     </div>
     <div class="stat">
       <div class="label">Total Return</div>
@@ -377,7 +378,7 @@
     <div class="stat">
       <div class="label">Best Window</div>
       <div class="value" id="sBest">Fri 10h</div>
-      <div class="sub">by avg %</div>
+      <div class="sub" id="sBestSub">by total %</div>
     </div>
   </div>
 
@@ -528,11 +529,22 @@ function analyze(trades, off) {
 }
 
 function bestWindow(A) {
+  let bc = null, any = null;
+  A.dayKeys.forEach(d => A.hourKeys.forEach(h => {
+    const c = A.cA[d + ":" + h];
+    if (!c) return;
+    if (!any || c.s > any.s) any = { d, h, s: c.s, n: c.n };
+    if (c.n >= 3 && (!bc || c.s > bc.s)) bc = { d, h, s: c.s, n: c.n };
+  }));
+  if (!any) return null;
+  const b = bc || any;
   let bd = null, bh = null;
-  A.dayKeys.forEach(k => { if (!bd || A.dA[k].avg > bd.avg) bd = { k, avg: A.dA[k].avg }; });
-  A.hourKeys.forEach(k => { if (!bh || A.hA[k].avg > bh.avg) bh = { k, avg: A.hA[k].avg }; });
-  if (!bd || !bh) return "—";
-  return DAYS3[bd.k] + " " + pad2(bh.k) + "h";
+  A.dayKeys.forEach(k => { if (!bd || A.dA[k].s > bd.s) bd = { k, s: A.dA[k].s }; });
+  A.hourKeys.forEach(k => { if (!bh || A.hA[k].s > bh.s) bh = { k, s: A.hA[k].s }; });
+  return {
+    cell: DAYS3[b.d] + " " + pad2(b.h) + "h–" + pad2((b.h + 1) % 24) + "h",
+    meta: "best day: " + DAYS3[bd.k] + " · best time: " + pad2(bh.k) + "h",
+  };
 }
 
 function barChart(items, mode) {
@@ -733,6 +745,7 @@ function render() {
     evEl.textContent = "—";
     evEl.className = "value";
     document.getElementById("sBest").textContent = "—";
+    document.getElementById("sBestSub").textContent = "";
     const empty = '<p class="no-data">No trades in this period.</p>';
     ["equity", "dayChartR", "dayChartT", "dayChartN", "hourChartR", "hourChartT", "hourChartN", "dayTable", "hourTable", "heatmap", "acctTable"].forEach(id => {
       const el = document.getElementById(id);
@@ -744,16 +757,26 @@ function render() {
   }
   document.getElementById("sTradesV").textContent = A.n;
   document.getElementById("sWr").textContent = (A.wins / A.n * 100).toFixed(1) + "%";
+  const winTs = A.T.filter(t => t.R > 0.2), lossTs = A.T.filter(t => t.p <= 0);
+  const avgW = winTs.length ? winTs.reduce((s, t) => s + t.R, 0) / winTs.length : 0;
+  const avgL = lossTs.length ? lossTs.reduce((s, t) => s + t.R, 0) / lossTs.length : 0;
   const avgEl = document.getElementById("sAvg");
-  avgEl.textContent = signed(A.sumR / A.n, 2) + "%";
-  avgEl.className = "value" + (A.sumR / A.n < 0 ? " neg" : " pos");
+  avgEl.textContent = signed(avgW, 2) + "%";
+  avgEl.className = "value" + (avgW < 0 ? " neg" : " pos");
   const totalEl = document.getElementById("sTotal");
   totalEl.textContent = signed(A.sumR, 2) + "%";
   totalEl.className = "value" + (A.sumR < 0 ? " neg" : " pos");
   const evEl = document.getElementById("sEV");
   evEl.textContent = signed(A.sumR / A.n, 2) + "%";
   evEl.className = "value" + (A.sumR / A.n < 0 ? " neg" : " pos");
-  document.getElementById("sBest").textContent = bestWindow(A);
+  const bw = bestWindow(A);
+  if (bw) {
+    document.getElementById("sBest").textContent = bw.cell;
+    document.getElementById("sBestSub").textContent = bw.meta;
+  } else {
+    document.getElementById("sBest").textContent = "—";
+    document.getElementById("sBestSub").textContent = "";
+  }
   document.getElementById("equity").innerHTML = lineChart(A);
   wireChart(document.getElementById("equity"), A.T, {
     mode: "line",
@@ -799,20 +822,17 @@ function render() {
   document.getElementById("cellsNote").textContent = hm.small + " weekday/hour cells have fewer than 3 trades — treat those numbers as early signal, not proof.";
 
   let bd = null, wd = null, bh = null, wh = null, busiest = null;
-  A.dayKeys.forEach(k => { if (!bd || A.dA[k].avg > bd.a.avg) bd = { k, a: A.dA[k] }; if (!wd || A.dA[k].avg < wd.a.avg) wd = { k, a: A.dA[k] }; });
-  A.hourKeys.forEach(h => { if (!bh || A.hA[h].avg > bh.a.avg) bh = { h, a: A.hA[h] }; if (!wh || A.hA[h].avg < wh.a.avg) wh = { h, a: A.hA[h] }; if (!busiest || A.hA[h].n > busiest.a.n) busiest = { h, a: A.hA[h] }; });
+  A.dayKeys.forEach(k => { if (!bd || A.dA[k].s > bd.a.s) bd = { k, a: A.dA[k] }; if (!wd || A.dA[k].avg < wd.a.avg) wd = { k, a: A.dA[k] }; });
+  A.hourKeys.forEach(h => { if (!bh || A.hA[h].s > bh.a.s) bh = { h, a: A.hA[h] }; if (!wh || A.hA[h].avg < wh.a.avg) wh = { h, a: A.hA[h] }; if (!busiest || A.hA[h].n > busiest.a.n) busiest = { h, a: A.hA[h] }; });
   const ev = A.sumR / A.n;
-  const winTs = A.T.filter(t => t.p > 0), lossTs = A.T.filter(t => t.p <= 0);
-  const avgW = winTs.length ? winTs.reduce((s, t) => s + t.R, 0) / winTs.length : 0;
-  const avgL = lossTs.length ? lossTs.reduce((s, t) => s + t.R, 0) / lossTs.length : 0;
   const lis = [
     ev >= 0.2
       ? "<li><b>EV / trade:</b> " + signed(ev, 2) + "% — above the 0.2% bar. Over 100 trades at this edge that is ~" + signed(ev * 100, 1) + "% on the account.</li>"
       : "<li><b>EV / trade:</b> " + signed(ev, 2) + "% — below the 0.2% bar. Either use bigger risk per trade or improve your average RR. More RR usually costs win rate, so find the balance that keeps EV above 0.2%.</li>",
-    "<li><b>Winners vs losers:</b> winners average " + signed(avgW, 2) + "%, losers average " + signed(avgL, 2) + "% at a " + (A.wins / A.n * 100).toFixed(1) + "% win rate — it is the size of winners vs losers that drives the total, not the win rate.</li>",
-    "<li><b>Best day:</b> " + DAYS_FULL[bd.k] + " — avg % " + signed(bd.a.avg, 2) + " over " + bd.a.n + " trades.</li>",
+    "<li><b>Winners vs losers:</b> winners above 0.2% average " + signed(avgW, 2) + "% (" + winTs.length + " trades), losers average " + signed(avgL, 2) + "% at a " + (A.wins / A.n * 100).toFixed(1) + "% win rate — it is the size of winners vs losers that drives the total, not the win rate.</li>",
+    "<li><b>Best day:</b> " + DAYS_FULL[bd.k] + " — total " + signed(bd.a.s, 2) + "% over " + bd.a.n + " trades.</li>",
     "<li><b>Worst day:</b> " + DAYS_FULL[wd.k] + " — avg % " + signed(wd.a.avg, 2) + " over " + wd.a.n + " trades" + (wd.a.avg < 0 ? " — consider sitting this one out or cutting size." : "") + "</li>",
-    "<li><b>Best hour:</b> " + pad2(bh.h) + ":00 — avg % " + signed(bh.a.avg, 2) + " over " + bh.a.n + " trades.</li>",
+    "<li><b>Best hour:</b> " + pad2(bh.h) + ":00 — total " + signed(bh.a.s, 2) + "% over " + bh.a.n + " trades.</li>",
     "<li><b>Worst hour:</b> " + pad2(wh.h) + ":00 — avg % " + signed(wh.a.avg, 2) + " over " + wh.a.n + " trades" + (wh.a.avg < 0 ? " — this window is bleeding expectancy." : "") + "</li>",
     "<li><b>Busiest hour:</b> " + pad2(busiest.h) + ":00 with " + busiest.a.n + " trades — check whether volume there matches the edge, or if you're just present out of habit.</li>",
     "<li>Read Avg % together with trade count. A great number on 2–3 trades is noise, not an edge — wait for more data before acting on it.</li>"
