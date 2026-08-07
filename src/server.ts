@@ -184,6 +184,11 @@ async function login(email: string, password: string): Promise<Session> {
     }>
   }
   if (!data.accounts?.length) throw new Error("no accounts found on this email")
+  console.log("[co-login] account fields:", JSON.stringify(data.accounts.map((a) => {
+    const copy: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(a)) copy[k] = k.toLowerCase().includes("token") ? "[redacted]" : v
+    return copy
+  }), null, 2))
   const session: Session = {
     email: data.email,
     accounts: data.accounts.map((a) => ({
@@ -230,23 +235,28 @@ function toTrade(acct: string, op: Operation): [string, string, number, number] 
   return [acct, fmtDT(op.openTime), Math.round(R * 100) / 100, Number(op.profit)]
 }
 
-async function fetchReport(session: Session, days: number) {
+async function fetchReport(session: Session, days: number, onlyAccountId?: string) {
   const to = new Date()
   const from = new Date(to.getTime() - days * 24 * 3600 * 1000)
   const trades: Array<[string, string, number, number]> = []
-  const perAccount: Array<{ accountId: string; name: string; count: number; net: number }> = []
-  for (const account of session.accounts) {
-    const res = await fpFetch(
-      `/mtr-api/${systemUUID}/closed-positions`,
-      "POST",
-      { from: from.toISOString(), to: to.toISOString(), symbols: [] },
-      { "auth-trading-api": account.tradingApiToken, Referer: baseURL + "/app/portfolio/closed" },
-    )
-    if (res.status === 401) {
-      throw new Error("session expired — please log in again")
+  const perAccount: Array<{ accountId: string; name: string; count: number; net: number; error?: string }> = []
+  const accounts = onlyAccountId ? session.accounts.filter((a) => a.tradingAccountId === onlyAccountId) : session.accounts
+  for (const account of accounts) {
+    let res: { status: number; text: string }
+    try {
+      res = await fpFetch(
+        `/mtr-api/${systemUUID}/closed-positions`,
+        "POST",
+        { from: from.toISOString(), to: to.toISOString(), symbols: [] },
+        { "auth-trading-api": account.tradingApiToken, Referer: baseURL + "/app/portfolio/closed" },
+      )
+    } catch (err) {
+      perAccount.push({ accountId: account.tradingAccountId, name: account.name, count: 0, net: 0, error: (err as Error).message })
+      continue
     }
     if (res.status !== 200) {
-      throw new Error(`account ${account.tradingAccountId}: HTTP ${res.status}`)
+      perAccount.push({ accountId: account.tradingAccountId, name: account.name, count: 0, net: 0, error: `HTTP ${res.status}: ${res.text.slice(0, 120)}` })
+      continue
     }
     const data = JSON.parse(res.text) as { operations: Operation[] }
     const ops = data.operations ?? []
@@ -335,10 +345,16 @@ const server = Bun.serve({
       try {
         const days = Math.min(Number(url.searchParams.get("days") ?? 90), 3650)
         const acct = url.searchParams.get("acct") ?? ""
-        const { trades, perAccount } = await fetchReport(s, days)
-        const filtered = acct ? trades.filter((t) => t[0] === acct) : trades
-        const filteredAccounts = acct ? perAccount.filter((a) => a.accountId === acct) : perAccount
-        return Response.json({ email: s.email, trades: filtered, perAccount: filteredAccounts })
+        const { trades, perAccount } = await fetchReport(s, days, acct || undefined)
+        const allFailed = trades.length === 0 && perAccount.length > 0 && perAccount.every((a) => a.error)
+        if (allFailed) {
+          const e401 = perAccount.some((a) => a.error?.includes("401"))
+          return Response.json(
+            { error: e401 ? "session expired — please log in again" : perAccount[0].error },
+            { status: 401 },
+          )
+        }
+        return Response.json({ email: s.email, trades, perAccount })
       } catch (err) {
         return Response.json({ error: (err as Error).message }, { status: 401 })
       }

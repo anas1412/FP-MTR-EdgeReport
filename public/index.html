@@ -331,24 +331,39 @@ async function renderReport(days, acct) {
   const res = await fetch("/api/report?days=" + days + (acct ? "&acct=" + encodeURIComponent(acct) : ""))
   const data = await parseJson(res)
   if (!res.ok) throw new Error(data.error || "report failed")
-  const scope = acct ? " · account " + acct : " across " + data.perAccount.length + " account(s)"
-  statusLine.textContent = data.trades.length + " closed trades" + scope + " — building report…"
+  const failed = data.perAccount.filter((a) => a.error)
+  const okCount = data.perAccount.length - failed.length
+  const scope = acct ? " · account " + acct : " across " + okCount + " account(s)"
+  const failures = failed.length
+    ? " — " + failed.map((a) => a.accountId + " (" + a.error + ")").join(", ")
+    : ""
+  statusLine.textContent = data.trades.length + " closed trades" + scope + failures + " — building report…"
   const tplRes = await fetch("/report-template")
   if (!tplRes.ok) throw new Error("report template missing")
   let tpl = await tplRes.text()
   tpl = tpl.replace("__TRADES__", JSON.stringify(data.trades))
   tpl = tpl.replace(
     "Source files: CLOSED_POSITIONS_1972530, CLOSED_POSITIONS_2013767",
-    "Accounts: " + data.perAccount.map((a) => "CLOSED_POSITIONS_" + a.accountId).join(", "),
+    "Accounts: " + data.perAccount.filter((a) => !a.error).map((a) => "CLOSED_POSITIONS_" + a.accountId).join(", "),
   )
   frame.srcdoc = tpl
-  statusLine.textContent = data.trades.length + " closed trades" + scope + " · fetched from your IP"
+  statusLine.textContent = data.trades.length + " closed trades" + scope + failures + " · fetched from your IP"
+}
+
+async function showReportFailure(err) {
+  statusLine.textContent = "Report failed: " + err.message
+  if (/log in again|401/.test(err.message)) {
+    statusLine.textContent += " — logging out…"
+    await fetch("/api/logout", { method: "POST" }).catch(() => {})
+    frame.srcdoc = ""
+    reportView.classList.add("hidden")
+    loginView.classList.remove("hidden")
+    $("password").value = ""
+  }
 }
 
 $("acctFilter").addEventListener("change", () => {
-  renderReport(stateDays, $("acctFilter").value).catch((err) => {
-    statusLine.textContent = "Report failed: " + err.message
-  })
+  renderReport(stateDays, $("acctFilter").value).catch(showReportFailure)
 })
 
 function enterReport(email, accounts) {
@@ -375,7 +390,7 @@ $("loginForm").addEventListener("submit", async (e) => {
     const data = await parseJson(res)
     if (!res.ok) throw new Error(data.error || "login failed")
     enterReport(data.email, data.accounts)
-    await renderReport(90)
+    renderReport(90, "").catch(showReportFailure)
   } catch (err) {
     showError(err.message)
   } finally {
@@ -395,20 +410,21 @@ $("logoutBtn").addEventListener("click", async () => {
 
 // ── restore saved session on load ──────────────────────────────────────────
 ;(async function init() {
+  let loggedIn = false
   try {
     const res = await fetch("/api/status")
     const data = await parseJson(res)
     if (data.loggedIn) {
+      loggedIn = true
       enterReport(data.email, data.accounts)
-      await renderReport(90)
-      return
+      renderReport(90, "").catch(showReportFailure)
     }
   } catch {
     $("hostedNote").style.display = "block"
     $("loginBtn").disabled = true
     return
   }
-  loginView.classList.remove("hidden")
+  if (!loggedIn) loginView.classList.remove("hidden")
 })()
 </script>
 </body>
