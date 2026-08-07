@@ -256,15 +256,46 @@ async function parseJson(res) {
   return data
 }
 
+const hasElectron = !!window.fp
+
+async function apiCall(route, args) {
+  if (hasElectron) return window.fp.api(route, args)
+  if (route === "template") {
+    const res = await fetch("/report-template")
+    if (!res.ok) throw new Error("report template missing")
+    return { ok: true, status: 200, data: await res.text() }
+  }
+  const map = {
+    status: ["/api/status", "GET"],
+    login: ["/api/login", "POST"],
+    report: ["/api/report", "GET"],
+    logout: ["/api/logout", "POST"],
+  }
+  const [path, method] = map[route]
+  let url = path
+  let init
+  if (method === "POST") {
+    init = { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(args) }
+  } else {
+    const a = args || {}
+    const qs = new URLSearchParams({
+      days: String(a.days ?? 90),
+      acct: a.acct || "",
+      exclude: (a.exclude || []).join(","),
+    })
+    url = path + "?" + qs.toString()
+  }
+  const res = await fetch(url, init)
+  return { ok: res.ok, status: res.status, data: await parseJson(res) }
+}
+
 async function renderReport(days, acct) {
   if (!stateIncludeArchived && stateArchived.includes(stateAcct)) stateAcct = ""
   const exclude = stateIncludeArchived ? [] : stateArchived
   setStatus("Fetching your trades…")
-  let url = "/api/report?days=" + days + (acct ? "&acct=" + encodeURIComponent(acct) : "")
-  if (exclude.length) url += "&exclude=" + exclude.join(",")
-  const res = await fetch(url)
-  const data = await parseJson(res)
-  if (!res.ok) throw new Error(data.error || "report failed")
+  const res = await apiCall("report", { days, acct, exclude })
+  if (!res.ok) throw new Error(res.data.error || "report failed")
+  const data = res.data
   const newlyArchived = data.perAccount.filter((a) => a.authFailed && !stateArchived.includes(a.accountId))
   if (newlyArchived.length) {
     stateArchived = stateArchived.concat(newlyArchived.map((a) => a.accountId))
@@ -274,9 +305,8 @@ async function renderReport(days, acct) {
     return renderReport(stateDays, stateAcct)
   }
   setStatus("Building report…")
-  const tplRes = await fetch("/report-template")
-  if (!tplRes.ok) throw new Error("report template missing")
-  let tpl = await tplRes.text()
+  const tplRes = await apiCall("template")
+  let tpl = tplRes.data
   tpl = tpl.replace("__TRADES__", JSON.stringify(data.trades))
   tpl = tpl.replace(
     "Source files: CLOSED_POSITIONS_1972530, CLOSED_POSITIONS_2013767",
@@ -354,7 +384,7 @@ async function showReportFailure(err) {
 }
 
 async function logout() {
-  await fetch("/api/logout", { method: "POST" })
+  await apiCall("logout")
   frame.srcdoc = ""
   reportView.classList.add("hidden")
   loginView.classList.remove("hidden")
@@ -379,14 +409,9 @@ $("loginForm").addEventListener("submit", async (e) => {
   btn.disabled = true
   btn.textContent = "Logging in…"
   try {
-    const res = await fetch("/api/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: $("email").value.trim(), password: $("password").value }),
-    })
-    const data = await parseJson(res)
-    if (!res.ok) throw new Error(data.error || "login failed")
-    enterReport(data.email, data.accounts)
+    const res = await apiCall("login", { email: $("email").value.trim(), password: $("password").value })
+    if (!res.ok) throw new Error(res.data.error || "login failed")
+    enterReport(res.data.email, res.data.accounts)
   } catch (err) {
     showError(err.message)
   } finally {
@@ -397,7 +422,7 @@ $("loginForm").addEventListener("submit", async (e) => {
 
 // ── restore saved session on load ──────────────────────────────────────────
 ;(async function init() {
-  if (location.hostname.endsWith(".vercel.app")) {
+  if (!hasElectron && location.hostname.endsWith(".vercel.app")) {
     $("hostedNote").style.display = "block"
     $("loginBtn").disabled = true
     loginView.classList.remove("hidden")
@@ -405,11 +430,10 @@ $("loginForm").addEventListener("submit", async (e) => {
   }
   let loggedIn = false
   try {
-    const res = await fetch("/api/status")
-    const data = await parseJson(res)
-    if (data.loggedIn) {
+    const res = await apiCall("status")
+    if (res.data.loggedIn) {
       loggedIn = true
-      enterReport(data.email, data.accounts)
+      enterReport(res.data.email, res.data.accounts)
     }
   } catch {
     $("hostedNote").style.display = "block"
