@@ -310,7 +310,7 @@ $("passToggle").addEventListener("click", () => {
 
 // ── build the report inside the iframe ─────────────────────────────────────
 let stateAccounts = []
-let stateDays = 90
+let stateDays = 3650
 let stateAcct = ""
 let stateTz = "auto"
 let stateArchived = JSON.parse(localStorage.getItem("fpArchived") || "[]")
@@ -353,7 +353,7 @@ async function apiCall(route, args) {
   } else {
     const a = args || {}
     const qs = new URLSearchParams({
-      days: String(a.days ?? 90),
+      days: String(a.days ?? 3650),
       acct: a.acct || "",
       exclude: (a.exclude || []).join(","),
     })

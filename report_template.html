@@ -108,7 +108,7 @@
 
   .stat-strip {
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(6, 1fr);
     gap: 1px;
     background: var(--border);
     border: 1px solid var(--border);
@@ -166,6 +166,7 @@
   }
 
   .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; align-items: start; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 28px; align-items: start; }
   .panel {
     background: var(--panel);
     border: 1px solid var(--border);
@@ -197,6 +198,14 @@
     box-shadow: 0 3px 10px rgba(0, 0, 0, 0.5);
   }
   .chart-tip b { color: var(--gold-soft); }
+  .no-data {
+    color: var(--muted);
+    font-size: 13px;
+    padding: 28px 12px;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: 0.05em;
+  }
   svg text { font-family: 'JetBrains Mono', monospace; }
 
   table.data {
@@ -253,6 +262,7 @@
   }
   td.heat-cell.empty { color: rgba(148,139,124,0.25); }
   .heat-r { display: block; font-size: 11px; font-weight: 600; color: var(--text); }
+  .heat-t { display: block; font-size: 8.5px; color: var(--gold-soft); margin-top: 1px; }
   .heat-n { display: block; font-size: 8.5px; color: var(--muted); margin-top: 1px; }
 
   .callout {
@@ -287,6 +297,7 @@
   @media (max-width: 760px) {
     .stat-strip { grid-template-columns: repeat(2, 1fr); }
     .grid-2 { grid-template-columns: 1fr; }
+    .grid-3 { grid-template-columns: 1fr; }
     h1 { font-size: 32px; }
     .appbar { flex-wrap: wrap; }
   }
@@ -359,8 +370,9 @@
       <div class="value pos" id="sTotal">+0.00</div>
     </div>
     <div class="stat">
-      <div class="label">Total P&amp;L</div>
-      <div class="value pos" id="sPnl">+658.33</div>
+      <div class="label">EV / Trade</div>
+      <div class="value pos" id="sEV">+0.00</div>
+      <div class="sub">expected value, per trade</div>
     </div>
     <div class="stat">
       <div class="label">Best Window</div>
@@ -386,11 +398,15 @@
       <span class="section-num">02</span>
       <h2>Edge by Day of Week</h2>
     </div>
-    <div class="section-desc">Grouped by the day you <i>entered</i> the trade — not when it closed. Avg % is your expectancy per trade in that bucket.</div>
-    <div class="grid-2">
+    <div class="section-desc">Grouped by the day you <i>entered</i> the trade — not when it closed. Avg % is your expectancy per trade, total % is the reward that day.</div>
+    <div class="grid-3">
       <div class="panel">
         <div class="panel-title">Avg return by weekday</div>
         <div id="dayChartR"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">Total return by weekday</div>
+        <div id="dayChartT"></div>
       </div>
       <div class="panel">
         <div class="panel-title">Trade frequency by weekday</div>
@@ -406,10 +422,14 @@
       <h2>Edge by Entry Hour</h2>
     </div>
     <div class="section-desc">Same idea, by clock hour of entry (platform time, shown in <span id="tzdesc">UTC+0</span>). This is usually the sharpest lens on "when to avoid, when to trade."</div>
-    <div class="grid-2">
+    <div class="grid-3">
       <div class="panel">
         <div class="panel-title">Avg return by hour</div>
         <div id="hourChartR"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">Total return by hour</div>
+        <div id="hourChartT"></div>
       </div>
       <div class="panel">
         <div class="panel-title">Trade frequency by hour</div>
@@ -424,7 +444,7 @@
       <span class="section-num">04</span>
       <h2>Weekday × Hour Matrix</h2>
     </div>
-    <div class="section-desc">Every cell is a day/hour combination: top number is avg %, bottom number is trade count. Green = positive expectancy, red = negative. Empty cells mean you haven't traded that slot yet.</div>
+    <div class="section-desc">Every cell is a day/hour combination: top is avg %, middle is total %, bottom is trade count. Green = positive expectancy, red = negative. Empty cells mean you haven't traded that slot yet.</div>
     <div id="heatmap"></div>
     <div class="note" id="cellsNote"></div>
   </section>
@@ -504,13 +524,14 @@ function analyze(trades, off) {
   const accts = {};
   T.forEach(t => { (accts[t.acct] = accts[t.acct] || []).push(t); });
   Object.keys(accts).forEach(k => aA[k] = agg(accts[k]));
-  return { T, cum, dA, hA, cA, aA, dayKeys, hourKeys, n: T.length, wins, sumR, sumP, range: [T[0].dt, T[T.length - 1].dt] };
+  return { T, cum, dA, hA, cA, aA, dayKeys, hourKeys, n: T.length, wins, sumR, sumP, range: T.length ? [T[0].dt, T[T.length - 1].dt] : [null, null] };
 }
 
 function bestWindow(A) {
   let bd = null, bh = null;
   A.dayKeys.forEach(k => { if (!bd || A.dA[k].avg > bd.avg) bd = { k, avg: A.dA[k].avg }; });
   A.hourKeys.forEach(k => { if (!bh || A.hA[k].avg > bh.avg) bh = { k, avg: A.hA[k].avg }; });
+  if (!bd || !bh) return "—";
   return DAYS3[bd.k] + " " + pad2(bh.k) + "h";
 }
 
@@ -652,11 +673,11 @@ function wireChart(el, items, opts) {
 }
 
 function dataTable(title, rows) {
-  let s = '<table class="data"><tr><th>' + title + '</th><th>Trades</th><th>Win Rate</th><th>Avg %</th><th>Total P&amp;L</th></tr>';
+  let s = '<table class="data"><tr><th>' + title + '</th><th>Trades</th><th>Win Rate</th><th>Avg %</th><th>Total %</th></tr>';
   rows.forEach(r => {
     s += '<tr><td>' + r.label + '</td><td class="num">' + r.n + '</td><td class="num">' + r.wr.toFixed(1) + '%</td>'
       + '<td class="num ' + (r.avg < 0 ? "neg" : "pos") + '">' + signed(r.avg, 2) + '</td>'
-      + '<td class="num ' + (r.p < 0 ? "neg" : "pos") + '">' + signed(r.p, 2) + '</td></tr>';
+      + '<td class="num ' + (r.s < 0 ? "neg" : "pos") + '">' + signed(r.s, 2) + '</td></tr>';
   });
   return s + '</table>';
 }
@@ -681,7 +702,7 @@ function heatmapSVG(A) {
       if (c.n < 3) small++;
       const alpha = Math.min(0.65, 0.10 + 0.018 * Math.abs(c.avg));
       const col = c.avg < 0 ? "217,83,79" : "76,175,125";
-      s += '<td class="heat-cell" style="background:rgba(' + col + ',' + alpha.toFixed(2) + ')" title="' + DAYS_FULL[d] + ' ' + pad2(h) + ':00 — ' + c.n + ' trades, avg % ' + signed(c.avg, 1) + '"><span class="heat-r">' + signed(c.avg, 1) + '</span><span class="heat-n">' + c.n + 't</span></td>';
+      s += '<td class="heat-cell" style="background:rgba(' + col + ',' + alpha.toFixed(2) + ')" title="' + DAYS_FULL[d] + ' ' + pad2(h) + ':00 — ' + c.n + ' trades, avg % ' + signed(c.avg, 1) + ', total % ' + signed(c.s, 1) + '"><span class="heat-r">' + signed(c.avg, 1) + '</span><span class="heat-t">' + signed(c.s, 1) + '%</span><span class="heat-n">' + c.n + 't</span></td>';
     });
     s += '</tr>';
   });
@@ -698,9 +719,29 @@ function render() {
   if (auto) { const o = document.getElementById("tzAuto"); if (o) o.textContent = "My time (" + tzl + ")"; }
   document.getElementById("sTz").textContent = tzl;
   document.getElementById("tzdesc").textContent = tzl;
-  document.getElementById("sRange").textContent = fmtFull(A.range[0]) + " → " + fmtFull(A.range[1]);
+  document.getElementById("sRange").textContent = A.n ? fmtFull(A.range[0]) + " → " + fmtFull(A.range[1]) : "—";
   document.getElementById("sTrades").textContent = A.n;
   document.getElementById("sAccts").textContent = Object.keys(A.aA).length;
+  if (A.n === 0) {
+    document.getElementById("sTradesV").textContent = "0";
+    document.getElementById("sWr").textContent = "—";
+    const avgEl = document.getElementById("sAvg");
+    avgEl.textContent = "—";
+    avgEl.className = "value";
+    document.getElementById("sTotal").textContent = "—";
+    const evEl = document.getElementById("sEV");
+    evEl.textContent = "—";
+    evEl.className = "value";
+    document.getElementById("sBest").textContent = "—";
+    const empty = '<p class="no-data">No trades in this period.</p>';
+    ["equity", "dayChartR", "dayChartT", "dayChartN", "hourChartR", "hourChartT", "hourChartN", "dayTable", "hourTable", "heatmap", "acctTable"].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.innerHTML = empty;
+    });
+    document.getElementById("cellsNote").textContent = "";
+    document.getElementById("takeaways").innerHTML = "<li>No trades in this period — the edge hasn't been tested yet.</li>";
+    return;
+  }
   document.getElementById("sTradesV").textContent = A.n;
   document.getElementById("sWr").textContent = (A.wins / A.n * 100).toFixed(1) + "%";
   const avgEl = document.getElementById("sAvg");
@@ -709,9 +750,9 @@ function render() {
   const totalEl = document.getElementById("sTotal");
   totalEl.textContent = signed(A.sumR, 2) + "%";
   totalEl.className = "value" + (A.sumR < 0 ? " neg" : " pos");
-  const pnlEl = document.getElementById("sPnl");
-  pnlEl.textContent = signed(A.sumP, 2);
-  pnlEl.className = "value" + (A.sumP < 0 ? " neg" : " pos");
+  const evEl = document.getElementById("sEV");
+  evEl.textContent = signed(A.sumR / A.n, 2) + "%";
+  evEl.className = "value" + (A.sumR / A.n < 0 ? " neg" : " pos");
   document.getElementById("sBest").textContent = bestWindow(A);
   document.getElementById("equity").innerHTML = lineChart(A);
   wireChart(document.getElementById("equity"), A.T, {
@@ -729,7 +770,12 @@ function render() {
     mode: "bar",
     fmt: i => DAYS_FULL[A.dayKeys[i]] + " — <b>" + A.dA[A.dayKeys[i]].n + "</b> trades",
   });
-  document.getElementById("dayTable").innerHTML = dataTable("Day", A.dayKeys.map(k => ({ label: DAYS_FULL[k], n: A.dA[k].n, wr: A.dA[k].wr, avg: A.dA[k].avg, p: A.dA[k].p })));
+  document.getElementById("dayChartT").innerHTML = barChart(A.dayKeys.map(k => ({ label: DAYS3[k], v: A.dA[k].s })), "r");
+  wireChart(document.getElementById("dayChartT"), A.dayKeys, {
+    mode: "bar",
+    fmt: i => DAYS_FULL[A.dayKeys[i]] + " — total <b>" + signed(A.dA[A.dayKeys[i]].s, 2) + "%</b> over " + A.dA[A.dayKeys[i]].n + " trades",
+  });
+  document.getElementById("dayTable").innerHTML = dataTable("Day", A.dayKeys.map(k => ({ label: DAYS_FULL[k], n: A.dA[k].n, wr: A.dA[k].wr, avg: A.dA[k].avg, s: A.dA[k].s })));
 
   document.getElementById("hourChartR").innerHTML = barChart(A.hourKeys.map(h => ({ label: pad2(h) + ":00", v: A.hA[h].avg })), "r");
   wireChart(document.getElementById("hourChartR"), A.hourKeys, {
@@ -741,7 +787,12 @@ function render() {
     mode: "bar",
     fmt: i => pad2(A.hourKeys[i]) + ":00 — <b>" + A.hA[A.hourKeys[i]].n + "</b> trades",
   });
-  document.getElementById("hourTable").innerHTML = dataTable("Hour", A.hourKeys.map(h => ({ label: pad2(h) + ":00", n: A.hA[h].n, wr: A.hA[h].wr, avg: A.hA[h].avg, p: A.hA[h].p })));
+  document.getElementById("hourChartT").innerHTML = barChart(A.hourKeys.map(h => ({ label: pad2(h) + ":00", v: A.hA[h].s })), "r");
+  wireChart(document.getElementById("hourChartT"), A.hourKeys, {
+    mode: "bar",
+    fmt: i => pad2(A.hourKeys[i]) + ":00 — total <b>" + signed(A.hA[A.hourKeys[i]].s, 2) + "%</b> over " + A.hA[A.hourKeys[i]].n + " trades",
+  });
+  document.getElementById("hourTable").innerHTML = dataTable("Hour", A.hourKeys.map(h => ({ label: pad2(h) + ":00", n: A.hA[h].n, wr: A.hA[h].wr, avg: A.hA[h].avg, s: A.hA[h].s })));
 
   const hm = heatmapSVG(A);
   document.getElementById("heatmap").innerHTML = hm.html;
@@ -750,7 +801,15 @@ function render() {
   let bd = null, wd = null, bh = null, wh = null, busiest = null;
   A.dayKeys.forEach(k => { if (!bd || A.dA[k].avg > bd.a.avg) bd = { k, a: A.dA[k] }; if (!wd || A.dA[k].avg < wd.a.avg) wd = { k, a: A.dA[k] }; });
   A.hourKeys.forEach(h => { if (!bh || A.hA[h].avg > bh.a.avg) bh = { h, a: A.hA[h] }; if (!wh || A.hA[h].avg < wh.a.avg) wh = { h, a: A.hA[h] }; if (!busiest || A.hA[h].n > busiest.a.n) busiest = { h, a: A.hA[h] }; });
+  const ev = A.sumR / A.n;
+  const winTs = A.T.filter(t => t.p > 0), lossTs = A.T.filter(t => t.p <= 0);
+  const avgW = winTs.length ? winTs.reduce((s, t) => s + t.R, 0) / winTs.length : 0;
+  const avgL = lossTs.length ? lossTs.reduce((s, t) => s + t.R, 0) / lossTs.length : 0;
   const lis = [
+    ev >= 0.2
+      ? "<li><b>EV / trade:</b> " + signed(ev, 2) + "% — above the 0.2% bar. Over 100 trades at this edge that is ~" + signed(ev * 100, 1) + "% on the account.</li>"
+      : "<li><b>EV / trade:</b> " + signed(ev, 2) + "% — below the 0.2% bar. Either use bigger risk per trade or improve your average RR. More RR usually costs win rate, so find the balance that keeps EV above 0.2%.</li>",
+    "<li><b>Winners vs losers:</b> winners average " + signed(avgW, 2) + "%, losers average " + signed(avgL, 2) + "% at a " + (A.wins / A.n * 100).toFixed(1) + "% win rate — it is the size of winners vs losers that drives the total, not the win rate.</li>",
     "<li><b>Best day:</b> " + DAYS_FULL[bd.k] + " — avg % " + signed(bd.a.avg, 2) + " over " + bd.a.n + " trades.</li>",
     "<li><b>Worst day:</b> " + DAYS_FULL[wd.k] + " — avg % " + signed(wd.a.avg, 2) + " over " + wd.a.n + " trades" + (wd.a.avg < 0 ? " — consider sitting this one out or cutting size." : "") + "</li>",
     "<li><b>Best hour:</b> " + pad2(bh.h) + ":00 — avg % " + signed(bh.a.avg, 2) + " over " + bh.a.n + " trades.</li>",
@@ -760,7 +819,7 @@ function render() {
   ];
   document.getElementById("takeaways").innerHTML = lis.join("");
 
-  document.getElementById("acctTable").innerHTML = dataTable("Account", Object.keys(A.aA).map(k => ({ label: k, n: A.aA[k].n, wr: A.aA[k].wr, avg: A.aA[k].avg, p: A.aA[k].p })));
+  document.getElementById("acctTable").innerHTML = dataTable("Account", Object.keys(A.aA).map(k => ({ label: k, n: A.aA[k].n, wr: A.aA[k].wr, avg: A.aA[k].avg, s: A.aA[k].s })));
 }
 
 document.getElementById("tz").addEventListener("change", render);

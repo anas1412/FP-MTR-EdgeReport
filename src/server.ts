@@ -290,17 +290,17 @@ async function fetchReport(session: Session, days: number, onlyAccountId?: strin
     const data = JSON.parse(res.text) as { operations: Operation[] }
     const ops = data.operations ?? []
     let net = 0
-    for (const op of ops) {
-      net += Number(op.netProfit ?? 0)
-      trades.push(toTrade(account.tradingAccountId, op, balance))
-    }
+    for (const op of ops) net += Number(op.netProfit ?? 0)
+    const base = balance - net > 0 ? balance - net : balance
+    for (const op of ops) trades.push(toTrade(account.tradingAccountId, op, base))
     perAccount.push({
       accountId: account.tradingAccountId,
       name: account.name,
       count: ops.length,
       net,
       balance,
-      ret: balance > 0 ? Math.round((net / balance) * 10000) / 100 : 0,
+      base,
+      ret: base > 0 ? Math.round((net / base) * 10000) / 100 : 0,
     })
   }
   return { trades, perAccount }
@@ -378,7 +378,7 @@ const server = Bun.serve({
       const s = loadSession()
       if (!s) return Response.json({ error: "not logged in" }, { status: 401 })
       try {
-        const days = Math.min(Number(url.searchParams.get("days") ?? 90), 3650)
+        const days = Math.min(Number(url.searchParams.get("days") ?? 3650), 3650)
         const acct = url.searchParams.get("acct") ?? ""
         const exclude = new Set((url.searchParams.get("exclude") ?? "").split(",").filter(Boolean))
         const { trades, perAccount } = await fetchReport(s, days, acct || undefined, exclude)
