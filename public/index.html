@@ -179,6 +179,33 @@
     white-space: nowrap;
   }
   button.logout:hover { color: var(--text); border-color: var(--gold); }
+  .acct-filter {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .acct-filter label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  select.acct {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    padding: 8px 10px;
+    outline: none;
+    border-radius: 0;
+    max-width: 250px;
+    cursor: pointer;
+  }
+  select.acct:focus { border-color: var(--gold); }
+  select.acct option { background: var(--panel-2); color: var(--text); }
   .status {
     padding: 18px 28px;
     color: var(--muted);
@@ -234,6 +261,10 @@
   <div class="topbar">
     <span class="brand">FP-MTR EDGEREPORT</span>
     <div class="spacer"></div>
+    <div class="acct-filter">
+      <label for="acctFilter">Account</label>
+      <select id="acctFilter" class="acct"></select>
+    </div>
     <span class="who" id="whoAmI"></span>
     <button type="button" id="logoutBtn" class="logout">Log out</button>
   </div>
@@ -264,13 +295,32 @@ $("passToggle").addEventListener("click", () => {
 })
 
 // ── build the report inside the iframe ─────────────────────────────────────
-async function renderReport(days) {
+let stateAccounts = []
+let stateDays = 90
+
+function populateAcctFilter(accounts) {
+  const sel = $("acctFilter")
+  sel.innerHTML = ""
+  const all = document.createElement("option")
+  all.value = ""
+  all.textContent = "All accounts"
+  sel.appendChild(all)
+  for (const a of accounts) {
+    const opt = document.createElement("option")
+    opt.value = a.tradingAccountId
+    opt.textContent = a.tradingAccountId + (a.name ? " · " + a.name : "")
+    sel.appendChild(opt)
+  }
+  sel.value = ""
+}
+
+async function renderReport(days, acct) {
   statusLine.textContent = "Fetching your trades…"
-  const res = await fetch("/api/report?days=" + days)
+  const res = await fetch("/api/report?days=" + days + (acct ? "&acct=" + encodeURIComponent(acct) : ""))
   const data = await res.json()
   if (!res.ok) throw new Error(data.error || "report failed")
-  statusLine.textContent =
-    data.trades.length + " closed trades across " + data.perAccount.length + " account(s) — building report…"
+  const scope = acct ? " · account " + acct : " across " + data.perAccount.length + " account(s)"
+  statusLine.textContent = data.trades.length + " closed trades" + scope + " — building report…"
   const tplRes = await fetch("/report-template")
   if (!tplRes.ok) throw new Error("report template missing")
   let tpl = await tplRes.text()
@@ -280,13 +330,20 @@ async function renderReport(days) {
     "Accounts: " + data.perAccount.map((a) => "CLOSED_POSITIONS_" + a.accountId).join(", "),
   )
   frame.srcdoc = tpl
-  statusLine.textContent =
-    data.trades.length + " closed trades across " + data.perAccount.length + " account(s) · fetched from your IP"
+  statusLine.textContent = data.trades.length + " closed trades" + scope + " · fetched from your IP"
 }
+
+$("acctFilter").addEventListener("change", () => {
+  renderReport(stateDays, $("acctFilter").value).catch((err) => {
+    statusLine.textContent = "Report failed: " + err.message
+  })
+})
 
 function enterReport(email, accounts) {
   loginView.classList.add("hidden")
   reportView.classList.remove("hidden")
+  stateAccounts = accounts
+  populateAcctFilter(accounts)
   $("whoAmI").textContent = email + " · " + accounts.length + " account(s)"
 }
 

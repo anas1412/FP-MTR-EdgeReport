@@ -266,8 +266,11 @@ const server = Bun.serve({
       if (!s) return Response.json({ error: "not logged in" }, { status: 401 })
       try {
         const days = Math.min(Number(url.searchParams.get("days") ?? 90), 3650)
+        const acct = url.searchParams.get("acct") ?? ""
         const { trades, perAccount } = await fetchReport(s, days)
-        return Response.json({ email: s.email, trades, perAccount })
+        const filtered = acct ? trades.filter((t) => t[0] === acct) : trades
+        const filteredAccounts = acct ? perAccount.filter((a) => a.accountId === acct) : perAccount
+        return Response.json({ email: s.email, trades: filtered, perAccount: filteredAccounts })
       } catch (err) {
         return Response.json({ error: (err as Error).message }, { status: 401 })
       }
