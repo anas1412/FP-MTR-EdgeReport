@@ -79,20 +79,13 @@
     white-space: nowrap;
   }
   .btn-logout:hover { color: var(--text); border-color: var(--gold); }
-  .tog-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
+  .arch-note {
     font-family: 'JetBrains Mono', monospace;
     font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
+    letter-spacing: 0.04em;
     color: var(--muted);
-    cursor: pointer;
-    user-select: none;
     white-space: nowrap;
   }
-  .tog-row input[type="checkbox"] { accent-color: var(--gold); cursor: pointer; margin: 0; }
   .tzlabel {
     font-family: 'JetBrains Mono', monospace;
     font-size: 10px;
@@ -326,10 +319,7 @@
     </select>
     <span class="tzlabel">Account</span>
     <select id="acct" class="tz-select"></select>
-    <label class="tog-row" title="Archived accounts (closed with FundingPips) are excluded by default">
-      <input type="checkbox" id="archTog">
-      <span>Include archived</span>
-    </label>
+    <span class="arch-note" id="archNote"></span>
     <div class="spacer"></div>
     <button type="button" id="logoutBtn" class="btn-logout">Log out</button>
   </div>

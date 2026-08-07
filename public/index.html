@@ -239,7 +239,6 @@ let stateDays = 90
 let stateAcct = ""
 let stateTz = "auto"
 let stateArchived = JSON.parse(localStorage.getItem("fpArchived") || "[]")
-let stateIncludeArchived = false
 
 function saveArchived() {
   localStorage.setItem("fpArchived", JSON.stringify(stateArchived))
@@ -290,8 +289,8 @@ async function apiCall(route, args) {
 }
 
 async function renderReport(days, acct) {
-  if (!stateIncludeArchived && stateArchived.includes(stateAcct)) stateAcct = ""
-  const exclude = stateIncludeArchived ? [] : stateArchived
+  if (stateArchived.includes(stateAcct)) stateAcct = ""
+  const exclude = stateArchived
   setStatus("Fetching your trades…")
   const res = await apiCall("report", { days, acct, exclude })
   if (!res.ok) throw new Error(res.data.error || "report failed")
@@ -339,10 +338,10 @@ frame.onload = () => {
       sel.appendChild(all)
       for (const a of stateAccounts) {
         const isArch = stateArchived.includes(a.tradingAccountId)
-        if (isArch && !stateIncludeArchived) continue
+        if (isArch) continue
         const o = doc.createElement("option")
         o.value = a.tradingAccountId
-        o.textContent = a.tradingAccountId + (a.name ? " · " + a.name : "") + (isArch ? " (archived)" : "")
+        o.textContent = a.tradingAccountId + (a.name ? " · " + a.name : "")
         sel.appendChild(o)
       }
       sel.value = stateAcct
@@ -351,13 +350,11 @@ frame.onload = () => {
         renderReport(stateDays, stateAcct).catch(showReportFailure)
       }
     }
-    const tog = doc.getElementById("archTog")
-    if (tog) {
-      tog.checked = stateIncludeArchived
-      tog.onchange = () => {
-        stateIncludeArchived = tog.checked
-        renderReport(stateDays, stateAcct).catch(showReportFailure)
-      }
+    const note = doc.getElementById("archNote")
+    if (note) {
+      note.textContent = stateArchived.length
+        ? "Archived " + (stateArchived.length === 1 ? "account" : "accounts") + " excluded: " + stateArchived.join(", ")
+        : ""
     }
     const lb = doc.getElementById("logoutBtn")
     if (lb) lb.onclick = logout
