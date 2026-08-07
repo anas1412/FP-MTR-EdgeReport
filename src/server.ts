@@ -46,64 +46,132 @@ function clearSession() {
   if (existsSync(sessionFile)) writeFileSync(sessionFile, "")
 }
 
-// ── FundingPips API (browser-identical headers via curl — passes Cloudflare) ─
+// ── FundingPips API (real browser via headless Chromium — passes Cloudflare) ─
 //
-// Bun's own fetch has a non-browser TLS fingerprint that Cloudflare flags;
-// curl with the full browser header set passes (verified). Cookies live in a
-// curl cookie jar file so the session persists between requests.
+// Cloudflare blocks plain curl / Bun fetch by TLS fingerprint. A real
+// Chromium instance has a browser fingerprint, so requests pass. All calls
+// still originate from YOUR machine's IP. Cookies and CF clearance live in
+// the browser context (survive across calls in one server run).
 
 import { spawnSync } from "child_process"
+import { chromium, type Browser, type Page } from "playwright-core"
 
 const cookieJarFile = join(root, ".session-cookies.txt")
 
+const chromiumCandidates = [
+  process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE,
+  "/usr/bin/chromium",
+  "/usr/bin/google-chrome",
+  "/usr/bin/google-chrome-stable",
+  "/usr/bin/chromium-browser",
+  "/opt/google/chrome/chrome",
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  "/Applications/Chromium.app/Contents/MacOS/Chromium",
+  "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+  "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+].filter((p): p is string => !!p && existsSync(p))
+const execPath = chromiumCandidates.find((p) => existsSync(p))
+
+let browser: Browser | null = null
+let page: Page | null = null
+let browserFailed = false
+
+async function getPage(): Promise<Page> {
+  if (page) return page
+  if (browserFailed || !execPath) {
+    throw new Error("chromium not found — install it (bunx playwright-core install chromium) or set PLAYWRIGHT_CHROMIUM_EXECUTABLE")
+  }
+  browser = await chromium.launch({
+    executablePath: execPath,
+    headless: true,
+    args: ["--no-sandbox", "--disable-blink-features=AutomationControlled", "--disable-dev-shm-usage"],
+  })
+  const ctx = await browser.newContext({
+    userAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    locale: "en-US",
+    viewport: { width: 1280, height: 800 },
+  })
+  page = await ctx.newPage()
+  await page.goto(baseURL + "/sign-in", { waitUntil: "domcontentloaded", timeout: 60_000 }).catch(() => {})
+  await page.waitForTimeout(4000)
+  return page
+}
+
+const isBlockPage = (text: string) =>
+  text.startsWith("<") && /cloudflare|just a moment|cf-|challenge|access denied/i.test(text.slice(0, 2000))
+
+async function fpBrowser(path: string, method: string, body?: unknown, headers: Record<string, string> = {}): Promise<{ status: number; text: string }> {
+  const pg = await getPage()
+  const send: Record<string, string> = {
+    accept: "application/json, text/plain, */*",
+    "content-type": "application/json",
+    "x-browser-id": browserID,
+  }
+  for (const [k, v] of Object.entries(headers)) send[k.toLowerCase()] = v
+  const referrer = send["referer"] || baseURL + "/sign-in"
+  let last: { status: number; text: string } = { status: 0, text: "" }
+  for (let attempt = 0; attempt < 3; attempt++) {
+    last = await pg.evaluate(
+      async ({ path, method, body, headers, referrer, base }) => {
+        const res = await fetch(base + path, {
+          method,
+          headers,
+          referrer,
+          body: body !== null ? JSON.stringify(body) : undefined,
+        })
+        return { status: res.status, text: await res.text() }
+      },
+      { path, method, body: body ?? null, headers: send, referrer, base: baseURL },
+    )
+    if (!isBlockPage(last.text)) return last
+    await pg.goto(baseURL + "/sign-in", { waitUntil: "domcontentloaded", timeout: 60_000 }).catch(() => {})
+    await pg.waitForTimeout(3000)
+  }
+  return last
+}
+
+// curl fallback (only used when Chromium cannot start)
 function browserArgs(): string[] {
   return [
-    "-H",
-    "User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-    "-H",
-    "Accept: application/json, text/plain, */*",
-    "-H",
-    "Accept-Language: en-US,en;q=0.9",
-    "-H",
-    "Origin: " + baseURL,
-    "-H",
-    "Referer: " + baseURL + "/sign-in",
-    "-H",
-    'Sec-Ch-Ua: "Google Chrome";v="125", "Chromium";v="125", "Not.A/Brand";v="24"',
-    "-H",
-    "Sec-Ch-Ua-Mobile: ?0",
-    "-H",
-    'Sec-Ch-Ua-Platform: "Linux"',
-    "-H",
-    "Sec-Fetch-Dest: empty",
-    "-H",
-    "Sec-Fetch-Mode: cors",
-    "-H",
-    "Sec-Fetch-Site: same-origin",
-    "-H",
-    "X-Browser-Id: " + browserID,
-    "-H",
-    "Content-Type: application/json",
-    "-b",
-    cookieJarFile,
-    "-c",
-    cookieJarFile,
+    "-H", "User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "-H", "Accept: application/json, text/plain, */*",
+    "-H", "Accept-Language: en-US,en;q=0.9",
+    "-H", "Origin: " + baseURL,
+    "-H", "Referer: " + baseURL + "/sign-in",
+    "-H", 'Sec-Ch-Ua: "Google Chrome";v="125", "Chromium";v="125", "Not.A/Brand";v="24"',
+    "-H", "Sec-Ch-Ua-Mobile: ?0",
+    "-H", 'Sec-Ch-Ua-Platform: "Linux"',
+    "-H", "Sec-Fetch-Dest: empty",
+    "-H", "Sec-Fetch-Mode: cors",
+    "-H", "Sec-Fetch-Site: same-origin",
+    "-H", "X-Browser-Id: " + browserID,
+    "-H", "Content-Type: application/json",
+    "-b", cookieJarFile,
+    "-c", cookieJarFile,
   ]
 }
 
-async function fpCurl(path: string, method: string, body?: unknown, extraHeaders: string[] = []): Promise<{ status: number; text: string }> {
+function fpCurl(path: string, method: string, body?: unknown, extraHeaders: string[] = []): Promise<{ status: number; text: string }> {
   const args = ["-sS", "-X", method, ...browserArgs(), ...extraHeaders]
   if (body !== undefined) args.push("--data-binary", JSON.stringify(body))
   args.push("-w", "\n%{http_code}", baseURL + path)
   const out = spawnSync("curl", args, { encoding: "utf8", timeout: 20_000 })
-  if (out.error) throw new Error("curl failed: " + out.error.message)
+  if (out.error) return Promise.reject(new Error("curl failed: " + out.error.message))
   const lines = out.stdout.trimEnd().split("\n")
   const status = Number(lines.pop())
-  return { status, text: lines.join("\n") }
+  return Promise.resolve({ status, text: lines.join("\n") })
+}
+
+async function fpFetch(path: string, method: string, body?: unknown, headers: Record<string, string> = {}): Promise<{ status: number; text: string }> {
+  try {
+    return await fpBrowser(path, method, body, headers)
+  } catch {
+    return fpCurl(path, method, body, Object.entries(headers).flatMap(([k, v]) => ["-H", k + ": " + v]))
+  }
 }
 
 async function login(email: string, password: string): Promise<Session> {
-  const res = await fpCurl("/manager/co-login", "POST", { email, password, brokerId: brokerID })
+  const res = await fpFetch("/manager/co-login", "POST", { email, password, brokerId: brokerID })
   if (res.status !== 200) {
     throw new Error(`login failed (HTTP ${res.status}): ${res.text.slice(0, 200)}`)
   }
@@ -168,11 +236,11 @@ async function fetchReport(session: Session, days: number) {
   const trades: Array<[string, string, number, number]> = []
   const perAccount: Array<{ accountId: string; name: string; count: number; net: number }> = []
   for (const account of session.accounts) {
-    const res = await fpCurl(
+    const res = await fpFetch(
       `/mtr-api/${systemUUID}/closed-positions`,
       "POST",
       { from: from.toISOString(), to: to.toISOString(), symbols: [] },
-      ["-H", "auth-trading-api: " + account.tradingApiToken, "-H", "Referer: " + baseURL + "/app/portfolio/closed"],
+      { "auth-trading-api": account.tradingApiToken, Referer: baseURL + "/app/portfolio/closed" },
     )
     if (res.status === 401) {
       throw new Error("session expired — please log in again")

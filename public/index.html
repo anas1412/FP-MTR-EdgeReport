@@ -253,6 +253,7 @@
       <button type="submit" id="loginBtn" class="login">Log in</button>
     </form>
     <div class="note">Your session is saved on this machine — no repeated logins.</div>
+    <div id="hostedNote" class="note" style="display:none;color:#E88C88">This hosted page has no backend — it cannot log in. Run the local app instead: <b>bun install &amp;&amp; bun run start</b> then open <b>http://localhost:8787</b>.</div>
   </div>
 </div>
 
@@ -314,10 +315,21 @@ function populateAcctFilter(accounts) {
   sel.value = ""
 }
 
+async function parseJson(res) {
+  let data
+  try {
+    data = await res.json()
+  } catch {
+    const text = (await res.text()).slice(0, 300)
+    throw new Error("bad response (HTTP " + res.status + "): " + text)
+  }
+  return data
+}
+
 async function renderReport(days, acct) {
   statusLine.textContent = "Fetching your trades…"
   const res = await fetch("/api/report?days=" + days + (acct ? "&acct=" + encodeURIComponent(acct) : ""))
-  const data = await res.json()
+  const data = await parseJson(res)
   if (!res.ok) throw new Error(data.error || "report failed")
   const scope = acct ? " · account " + acct : " across " + data.perAccount.length + " account(s)"
   statusLine.textContent = data.trades.length + " closed trades" + scope + " — building report…"
@@ -360,7 +372,7 @@ $("loginForm").addEventListener("submit", async (e) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email: $("email").value.trim(), password: $("password").value }),
     })
-    const data = await res.json()
+    const data = await parseJson(res)
     if (!res.ok) throw new Error(data.error || "login failed")
     enterReport(data.email, data.accounts)
     await renderReport(90)
@@ -385,13 +397,17 @@ $("logoutBtn").addEventListener("click", async () => {
 ;(async function init() {
   try {
     const res = await fetch("/api/status")
-    const data = await res.json()
+    const data = await parseJson(res)
     if (data.loggedIn) {
       enterReport(data.email, data.accounts)
       await renderReport(90)
       return
     }
-  } catch {}
+  } catch {
+    $("hostedNote").style.display = "block"
+    $("loginBtn").disabled = true
+    return
+  }
   loginView.classList.remove("hidden")
 })()
 </script>
