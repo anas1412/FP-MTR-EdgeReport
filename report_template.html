@@ -30,7 +30,7 @@
     font-family: 'Inter', sans-serif;
     line-height: 1.5;
   }
-  .wrap { max-width: 1080px; margin: 0 auto; padding: 56px 28px 90px; }
+  .wrap { max-width: 1320px; margin: 0 auto; padding: 56px 28px 90px; }
   .eyebrow {
     font-family: 'JetBrains Mono', monospace;
     text-transform: uppercase;
@@ -79,6 +79,20 @@
     white-space: nowrap;
   }
   .btn-logout:hover { color: var(--text); border-color: var(--gold); }
+  .btn-export {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    background: transparent;
+    color: var(--gold-soft);
+    border: 1px solid rgba(201,150,44,0.35);
+    border-radius: 6px;
+    padding: 8px 14px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .btn-export:hover { color: var(--text); border-color: var(--gold); }
   .arch-note {
     font-family: 'JetBrains Mono', monospace;
     font-size: 11px;
@@ -348,6 +362,7 @@
     <select id="acct" class="tz-select"></select>
     <span class="arch-note" id="archNote"></span>
     <div class="spacer"></div>
+    <button type="button" id="exportBtn" class="btn-export">Export HTML</button>
     <button type="button" id="logoutBtn" class="btn-logout">Log out</button>
   </div>
   <div class="tzhint">MatchTrader exports server time in UTC+0. "My time" uses your browser's local clock; pick any other offset to view in a specific zone.</div>
@@ -843,6 +858,21 @@ function render() {
 }
 
 document.getElementById("tz").addEventListener("change", render);
+document.getElementById("exportBtn").addEventListener("click", () => {
+  const clone = document.documentElement.cloneNode(true);
+  const head = clone.querySelector("head");
+  const st = document.createElement("style");
+  st.textContent = ".appbar, .tzhint { display: none !important; }";
+  head.appendChild(st);
+  const blob = new Blob([clone.outerHTML], { type: "text/html" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "edge-report-" + new Date().toISOString().slice(0, 10) + ".html";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(a.href);
+});
 render();
 </script>
 </body>
