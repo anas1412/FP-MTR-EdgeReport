@@ -166,6 +166,44 @@
   }
   .toast.show { display: block; }
   .hidden { display: none !important; }
+
+  /* ── loading overlay ────────────────────────────────────────────────────── */
+  .loading {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(20, 17, 15, 0.92);
+    z-index: 60;
+  }
+  .loading-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 18px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 34px 48px 30px;
+  }
+  .spinner {
+    width: 42px;
+    height: 42px;
+    border: 3px solid var(--border);
+    border-top-color: var(--gold);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+  .loading-msg {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12.5px;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+  }
 </style>
 </head>
 <body>
@@ -191,7 +229,7 @@
       </div>
       <button type="submit" id="loginBtn" class="login">Log in</button>
     </form>
-    <div class="note">Your session is saved on this machine — no repeated logins.</div>
+    <div class="note">Session is saved on this machine — it reconnects automatically when it expires.</div>
     <div id="hostedNote" class="note" style="display:none;color:#E88C88">This hosted page has no backend — it cannot log in. Run the local app instead: <b>bun install &amp;&amp; bun run start</b> then open <b>http://localhost:8787</b>.</div>
   </div>
 </div>
@@ -201,6 +239,12 @@
   <iframe id="reportFrame" title="Trading Edge Report"></iframe>
 </div>
 <div id="toast" class="toast"></div>
+<div id="loading" class="loading hidden">
+  <div class="loading-box">
+    <div class="spinner"></div>
+    <div id="loadingMsg" class="loading-msg">Fetching trades…</div>
+  </div>
+</div>
 
 <script>
 const $ = (id) => document.getElementById(id)
@@ -210,6 +254,8 @@ const reportView = $("reportView")
 const frame = $("reportFrame")
 const errorBox = $("errorBox")
 const toast = $("toast")
+const loadingEl = $("loading")
+const loadingMsg = $("loadingMsg")
 
 function setStatus(msg) {
   toast.textContent = msg
@@ -223,6 +269,35 @@ function clearStatus() {
 function showError(msg) {
   errorBox.textContent = msg
   errorBox.classList.add("show")
+}
+
+// ── loading overlay ────────────────────────────────────────────────────────
+function setLoading(msg) {
+  loadingMsg.textContent = msg
+  loadingEl.classList.remove("hidden")
+}
+
+function hideLoading() {
+  loadingEl.classList.add("hidden")
+}
+
+// ── saved credentials (auto re-login on session expiry) ────────────────────
+const CREDS_KEY = "fpCreds"
+
+function getCreds() {
+  try {
+    return JSON.parse(localStorage.getItem(CREDS_KEY) || "null")
+  } catch {
+    return null
+  }
+}
+
+function saveCreds(email, password) {
+  localStorage.setItem(CREDS_KEY, JSON.stringify({ email, password }))
+}
+
+function clearCreds() {
+  localStorage.removeItem(CREDS_KEY)
 }
 
 // ── password visibility ────────────────────────────────────────────────────
@@ -291,37 +366,43 @@ async function apiCall(route, args) {
 async function renderReport(days, acct) {
   if (stateArchived.includes(stateAcct)) stateAcct = ""
   const exclude = stateArchived
-  setStatus("Fetching your trades…")
-  const res = await apiCall("report", { days, acct, exclude })
-  if (!res.ok) throw new Error(res.data.error || "report failed")
-  const data = res.data
-  const newlyArchived = data.perAccount.filter((a) => a.authFailed && !stateArchived.includes(a.accountId))
-  if (newlyArchived.length) {
-    stateArchived = stateArchived.concat(newlyArchived.map((a) => a.accountId))
-    saveArchived()
-    setStatus("Marked archived: " + newlyArchived.map((a) => a.accountId).join(", ") + " — rebuilding…")
-    await new Promise((r) => setTimeout(r, 600))
-    return renderReport(stateDays, stateAcct)
-  }
-  setStatus("Building report…")
-  const tplRes = await apiCall("template")
-  let tpl = tplRes.data
-  tpl = tpl.replace("__TRADES__", JSON.stringify(data.trades))
-  tpl = tpl.replace(
-    "Source files: CLOSED_POSITIONS_1972530, CLOSED_POSITIONS_2013767",
-    "Accounts: " + data.perAccount.filter((a) => !a.error).map((a) => "CLOSED_POSITIONS_" + a.accountId).join(", "),
-  )
-  tpl = tpl.replace('<option value="auto" selected', '<option value="auto"')
-  if (stateTz !== "auto") tpl = tpl.replace('<option value="' + stateTz + '">', '<option value="' + stateTz + '" selected>')
-  frame.srcdoc = tpl
-  clearStatus()
-  const failed = data.perAccount.filter((a) => a.error)
-  if (failed.length) {
-    setStatus(
-      failed
-        .map((a) => a.accountId + (a.authFailed ? " archived (401)" : " failed: " + a.error))
-        .join(" · "),
+  setLoading("Fetching trades…")
+  try {
+    const res = await apiCall("report", { days, acct, exclude })
+    if (!res.ok) throw new Error(res.data.error || "report failed")
+    const data = res.data
+    const newlyArchived = data.perAccount.filter((a) => a.authFailed && !stateArchived.includes(a.accountId))
+    if (newlyArchived.length) {
+      stateArchived = stateArchived.concat(newlyArchived.map((a) => a.accountId))
+      saveArchived()
+      setLoading("Marked archived: " + newlyArchived.map((a) => a.accountId).join(", ") + " — rebuilding…")
+      await new Promise((r) => setTimeout(r, 600))
+      return renderReport(stateDays, stateAcct)
+    }
+    setLoading("Building report…")
+    const tplRes = await apiCall("template")
+    let tpl = tplRes.data
+    tpl = tpl.replace("__TRADES__", JSON.stringify(data.trades))
+    tpl = tpl.replace(
+      "Source files: CLOSED_POSITIONS_1972530, CLOSED_POSITIONS_2013767",
+      "Accounts: " + data.perAccount.filter((a) => !a.error).map((a) => "CLOSED_POSITIONS_" + a.accountId).join(", "),
     )
+    tpl = tpl.replace('<option value="auto" selected', '<option value="auto"')
+    if (stateTz !== "auto") tpl = tpl.replace('<option value="' + stateTz + '">', '<option value="' + stateTz + '" selected>')
+    frame.srcdoc = tpl
+    hideLoading()
+    clearStatus()
+    const failed = data.perAccount.filter((a) => a.error)
+    if (failed.length) {
+      setStatus(
+        failed
+          .map((a) => a.accountId + (a.authFailed ? " archived (401)" : " failed: " + a.error))
+          .join(" · "),
+      )
+    }
+  } catch (err) {
+    hideLoading()
+    throw err
   }
 }
 
@@ -351,11 +432,7 @@ frame.onload = () => {
       }
     }
     const note = doc.getElementById("archNote")
-    if (note) {
-      note.textContent = stateArchived.length
-        ? "Archived " + (stateArchived.length === 1 ? "account" : "accounts") + " excluded: " + stateArchived.join(", ")
-        : ""
-    }
+    if (note) note.textContent = stateArchived.length ? "Archived accounts are excluded" : ""
     const lb = doc.getElementById("logoutBtn")
     if (lb) lb.onclick = logout
     const tz = doc.getElementById("tz")
@@ -364,7 +441,21 @@ frame.onload = () => {
 }
 
 async function showReportFailure(err) {
+  hideLoading()
   if (/log in again|session expired/.test(err.message)) {
+    const creds = getCreds()
+    if (creds) {
+      setStatus("Session expired — reconnecting…")
+      try {
+        const res = await apiCall("login", { email: creds.email, password: creds.password })
+        if (res.ok) {
+          stateAccounts = res.data.accounts
+          enterReport(res.data.email, res.data.accounts)
+          return
+        }
+        clearCreds()
+      } catch {}
+    }
     setStatus("Session expired — logging out…")
     await fetch("/api/logout", { method: "POST" }).catch(() => {})
     setTimeout(() => {
@@ -381,6 +472,7 @@ async function showReportFailure(err) {
 }
 
 async function logout() {
+  clearCreds()
   await apiCall("logout")
   frame.srcdoc = ""
   reportView.classList.add("hidden")
@@ -389,6 +481,7 @@ async function logout() {
   stateAcct = ""
   stateTz = "auto"
   clearStatus()
+  hideLoading()
 }
 
 function enterReport(email, accounts) {
@@ -408,6 +501,7 @@ $("loginForm").addEventListener("submit", async (e) => {
   try {
     const res = await apiCall("login", { email: $("email").value.trim(), password: $("password").value })
     if (!res.ok) throw new Error(res.data.error || "login failed")
+    saveCreds($("email").value.trim(), $("password").value)
     enterReport(res.data.email, res.data.accounts)
   } catch (err) {
     showError(err.message)
@@ -437,7 +531,14 @@ $("loginForm").addEventListener("submit", async (e) => {
     $("loginBtn").disabled = true
     return
   }
-  if (!loggedIn) loginView.classList.remove("hidden")
+  if (!loggedIn) {
+    const creds = getCreds()
+    if (creds) {
+      $("email").value = creds.email
+      $("password").value = creds.password
+    }
+    loginView.classList.remove("hidden")
+  }
 })()
 </script>
 </body>

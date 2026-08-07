@@ -225,26 +225,46 @@ function fmtDT(iso: string): string {
   return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
 }
 
-function toTrade(acct: string, op: Operation): [string, string, number, number] {
-  const openPrice = Number(op.openPrice)
-  const closePrice = Number(op.closePrice)
-  const stopLoss = Number(op.stopLoss)
-  const stopDist = Math.abs(openPrice - stopLoss)
-  const reward = op.side === "BUY" ? closePrice - openPrice : openPrice - closePrice
-  const R = stopDist > 0 ? reward / stopDist : 0
-  return [acct, fmtDT(op.openTime), Math.round(R * 100) / 100, Number(op.profit)]
+function toTrade(acct: string, op: Operation, balance: number): [string, string, number, number] {
+  const net = Number(op.netProfit ?? 0)
+  const pct = balance > 0 ? Math.round((net / balance) * 10000) / 100 : 0
+  return [acct, fmtDT(op.openTime), pct, net]
 }
 
 async function fetchReport(session: Session, days: number, onlyAccountId?: string, excludeIds?: Set<string>) {
   const to = new Date()
   const from = new Date(to.getTime() - days * 24 * 3600 * 1000)
   const trades: Array<[string, string, number, number]> = []
-  const perAccount: Array<{ accountId: string; name: string; count: number; net: number; error?: string; authFailed?: boolean }> = []
+  const perAccount: Array<{ accountId: string; name: string; count: number; net: number; balance?: number; ret?: number; error?: string; authFailed?: boolean }> = []
   const accounts = session.accounts.filter(
     (a) => (!onlyAccountId || a.tradingAccountId === onlyAccountId) && !excludeIds?.has(a.tradingAccountId),
   )
+  const reportHeaders = { "auth-trading-api": "", Referer: baseURL + "/app/portfolio" }
   for (const account of accounts) {
+    reportHeaders["auth-trading-api"] = account.tradingApiToken
     let res: { status: number; text: string }
+    try {
+      res = await fpFetch(`/mtr-api/${systemUUID}/balance`, "GET", undefined, reportHeaders)
+    } catch (err) {
+      perAccount.push({ accountId: account.tradingAccountId, name: account.name, count: 0, net: 0, error: (err as Error).message })
+      continue
+    }
+    if (res.status !== 200) {
+      perAccount.push({
+        accountId: account.tradingAccountId,
+        name: account.name,
+        count: 0,
+        net: 0,
+        error: `HTTP ${res.status}: ${res.text.slice(0, 120)}`,
+        authFailed: res.status === 401,
+      })
+      continue
+    }
+    let balance = 0
+    try {
+      const bal = JSON.parse(res.text) as { balance?: string | number }
+      balance = Number(bal.balance ?? 0)
+    } catch {}
     try {
       res = await fpFetch(
         `/mtr-api/${systemUUID}/closed-positions`,
@@ -269,12 +289,18 @@ async function fetchReport(session: Session, days: number, onlyAccountId?: strin
     }
     const data = JSON.parse(res.text) as { operations: Operation[] }
     const ops = data.operations ?? []
-    for (const op of ops) trades.push(toTrade(account.tradingAccountId, op))
+    let net = 0
+    for (const op of ops) {
+      net += Number(op.netProfit ?? 0)
+      trades.push(toTrade(account.tradingAccountId, op, balance))
+    }
     perAccount.push({
       accountId: account.tradingAccountId,
       name: account.name,
       count: ops.length,
-      net: ops.reduce((s, op) => s + Number(op.netProfit ?? 0), 0),
+      net,
+      balance,
+      ret: balance > 0 ? Math.round((net / balance) * 10000) / 100 : 0,
     })
   }
   return { trades, perAccount }
