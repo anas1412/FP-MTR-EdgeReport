@@ -155,14 +155,17 @@ async function fpFetch(path: string, method: string, body?: unknown, headers: Re
 async function realSignIn(pg: Page, email: string, password: string): Promise<boolean> {
   try {
     await pg.goto(baseURL + "/sign-in", { waitUntil: "domcontentloaded", timeout: 60_000 })
-    await pg.waitForTimeout(1500)
     const emailSel = "input[type=email], input[name=email], input#email, input[name=username]"
     const passSel = "input[type=password]"
     await pg.waitForSelector(emailSel, { timeout: 10_000 })
     await pg.fill(emailSel, email)
     if (await pg.$(passSel)) await pg.fill(passSel, password)
     await pg.click("button[type=submit]").catch(() => pg.click("form button").catch(() => pg.keyboard.press("Enter")))
-    await pg.waitForTimeout(4000)
+    const t0 = Date.now()
+    while (Date.now() - t0 < 8000) {
+      if (!pg.url().includes("/sign-in")) break
+      await pg.waitForTimeout(250)
+    }
     const gone = !pg.url().includes("/sign-in")
     if (gone) console.log("[login] real sign-in ok")
     return gone
@@ -321,13 +324,15 @@ async function fetchReport(session: Session, days: number, onlyAccountId?: strin
     (a) => (!onlyAccountId || a.tradingAccountId === onlyAccountId) && !excludeIds?.has(a.tradingAccountId),
   )
   const results: Array<Awaited<ReturnType<typeof fetchAccount>>> = []
-  const maxAttempts = accounts.length === 1 ? 3 : 2
+  const retryDelays = [800, 2000]
   for (const a of accounts) {
     let r = await fetchAccount(a, from, to)
-    for (let attempt = 1; attempt < maxAttempts && r.entry?.authFailed; attempt++) {
-      console.log(`[report] retrying ${a.tradingAccountId}… (${attempt}/${maxAttempts - 1})`)
-      await new Promise((res) => setTimeout(res, 1500))
+    let attempt = 1
+    while (r.entry?.authFailed && attempt <= retryDelays.length) {
+      console.log(`[report] retrying ${a.tradingAccountId}… (${attempt}/${retryDelays.length})`)
+      await new Promise((res) => setTimeout(res, retryDelays[attempt - 1]))
       r = await fetchAccount(a, from, to)
+      attempt++
     }
     results.push(r)
   }

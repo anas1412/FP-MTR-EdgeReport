@@ -369,7 +369,6 @@ async function renderReport(days, acct) {
     const res = await apiCall("report", { days, acct, exclude: stateArchived })
     if (!res.ok) throw new Error(res.data.error || "report failed")
     const data = res.data
-    reconnectCount = 0
     for (const a of data.perAccount) {
       if (a.authFailed && !stateArchived.includes(a.accountId)) stateArchived.push(a.accountId)
     }
@@ -439,7 +438,7 @@ frame.onload = () => {
   } catch {}
 }
 
-let reconnectCount = 0
+let didAutoLogin = false
 
 async function showReportFailure(err) {
   hideLoading()
@@ -448,28 +447,29 @@ async function showReportFailure(err) {
     setStatus("Report failed: " + err.message)
     return
   }
-  const giveUp = async () => {
-    setStatus("FundingPips rejected access — please log in again.")
-    await fetch("/api/logout", { method: "POST" }).catch(() => {})
-    frame.srcdoc = ""
-    reportView.classList.add("hidden")
-    loginView.classList.remove("hidden")
-    $("password").value = ""
-    clearStatus()
-    showError("FundingPips rejected the session. If this keeps happening, open fundingpips.com in a browser and log in once, then log in here again.")
+  if (!didAutoLogin) {
+    const creds = getCreds()
+    if (creds) {
+      didAutoLogin = true
+      setStatus("Session expired — reconnecting…")
+      try {
+        const res = await apiCall("login", { email: creds.email, password: creds.password })
+        if (!res.ok) throw new Error(res.data.error || "login failed")
+        enterReport(res.data.email, res.data.accounts)
+        return
+      } catch (e) {
+        err = e
+      }
+    }
   }
-  if (reconnectCount >= 2) {
-    await giveUp()
-    return
-  }
-  reconnectCount++
-  setStatus("FundingPips rejected access — retrying (" + reconnectCount + "/2)…")
-  await new Promise((r) => setTimeout(r, 3000))
-  try {
-    await renderReport(stateDays, stateAcct)
-  } catch (e) {
-    showReportFailure(e)
-  }
+  setStatus("FundingPips rejected access — please log in again.")
+  await fetch("/api/logout", { method: "POST" }).catch(() => {})
+  frame.srcdoc = ""
+  reportView.classList.add("hidden")
+  loginView.classList.remove("hidden")
+  $("password").value = ""
+  clearStatus()
+  showError("FundingPips rejected the session. If this keeps happening, open fundingpips.com in a browser and log in once, then log in here again.")
 }
 
 async function logout() {
@@ -521,24 +521,16 @@ $("loginForm").addEventListener("submit", async (e) => {
     loginView.classList.remove("hidden")
     return
   }
-  let loggedIn = false
-  const creds = getCreds()
-  if (creds) {
-    setLoading("Reconnecting session…")
-    try {
-      const res = await apiCall("login", { email: creds.email, password: creds.password })
-      if (res.ok) {
-        enterReport(res.data.email, res.data.accounts)
-        return
-      }
-    } catch {}
-    hideLoading()
-    $("email").value = creds.email
-    $("password").value = creds.password
-    showError("Could not reconnect automatically — please log in again.")
+  const showLogin = (msg) => {
+    const creds = getCreds()
+    if (creds) {
+      $("email").value = creds.email
+      $("password").value = creds.password
+    }
+    if (msg) showError(msg)
     loginView.classList.remove("hidden")
-    return
   }
+  let loggedIn = false
   try {
     const res = await apiCall("status")
     if (res.data.loggedIn) {
@@ -550,8 +542,23 @@ $("loginForm").addEventListener("submit", async (e) => {
     $("loginBtn").disabled = true
     return
   }
-  if (!loggedIn) {
-    loginView.classList.remove("hidden")
+  if (loggedIn) return
+  const creds = getCreds()
+  if (!creds) {
+    showLogin("")
+    return
+  }
+  setLoading("Reconnecting session…")
+  try {
+    const res = await apiCall("login", { email: creds.email, password: creds.password })
+    if (res.ok) {
+      enterReport(res.data.email, res.data.accounts)
+      return
+    }
+    throw new Error(res.data.error || "login failed")
+  } catch (err) {
+    hideLoading()
+    showLogin("Could not reconnect automatically — " + err.message)
   }
 })()
 </script>
