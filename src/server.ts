@@ -235,12 +235,14 @@ function toTrade(acct: string, op: Operation): [string, string, number, number] 
   return [acct, fmtDT(op.openTime), Math.round(R * 100) / 100, Number(op.profit)]
 }
 
-async function fetchReport(session: Session, days: number, onlyAccountId?: string) {
+async function fetchReport(session: Session, days: number, onlyAccountId?: string, excludeIds?: Set<string>) {
   const to = new Date()
   const from = new Date(to.getTime() - days * 24 * 3600 * 1000)
   const trades: Array<[string, string, number, number]> = []
-  const perAccount: Array<{ accountId: string; name: string; count: number; net: number; error?: string }> = []
-  const accounts = onlyAccountId ? session.accounts.filter((a) => a.tradingAccountId === onlyAccountId) : session.accounts
+  const perAccount: Array<{ accountId: string; name: string; count: number; net: number; error?: string; authFailed?: boolean }> = []
+  const accounts = session.accounts.filter(
+    (a) => (!onlyAccountId || a.tradingAccountId === onlyAccountId) && !excludeIds?.has(a.tradingAccountId),
+  )
   for (const account of accounts) {
     let res: { status: number; text: string }
     try {
@@ -255,7 +257,14 @@ async function fetchReport(session: Session, days: number, onlyAccountId?: strin
       continue
     }
     if (res.status !== 200) {
-      perAccount.push({ accountId: account.tradingAccountId, name: account.name, count: 0, net: 0, error: `HTTP ${res.status}: ${res.text.slice(0, 120)}` })
+      perAccount.push({
+        accountId: account.tradingAccountId,
+        name: account.name,
+        count: 0,
+        net: 0,
+        error: `HTTP ${res.status}: ${res.text.slice(0, 120)}`,
+        authFailed: res.status === 401,
+      })
       continue
     }
     const data = JSON.parse(res.text) as { operations: Operation[] }
@@ -345,7 +354,8 @@ const server = Bun.serve({
       try {
         const days = Math.min(Number(url.searchParams.get("days") ?? 90), 3650)
         const acct = url.searchParams.get("acct") ?? ""
-        const { trades, perAccount } = await fetchReport(s, days, acct || undefined)
+        const exclude = new Set((url.searchParams.get("exclude") ?? "").split(",").filter(Boolean))
+        const { trades, perAccount } = await fetchReport(s, days, acct || undefined, exclude)
         const allFailed = trades.length === 0 && perAccount.length > 0 && perAccount.every((a) => a.error)
         if (allFailed) {
           const e401 = perAccount.some((a) => a.error?.includes("401"))

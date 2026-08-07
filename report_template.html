@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Trading Edge Report — XAUUSD</title>
+<title>Trading Edge Report</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -53,16 +53,46 @@
   }
   .subtitle b { color: var(--text); font-weight: 500; }
 
-  .tzbar {
+  .appbar {
     display: flex;
     align-items: center;
     gap: 14px;
-    margin-bottom: 40px;
+    margin-bottom: 14px;
     padding: 12px 16px;
     background: var(--panel);
     border: 1px solid var(--border);
     border-radius: 10px;
+    flex-wrap: wrap;
   }
+  .appbar .spacer { flex: 1; }
+  .btn-logout {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    background: var(--panel-2);
+    color: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 14px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .btn-logout:hover { color: var(--text); border-color: var(--gold); }
+  .tog-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+  }
+  .tog-row input[type="checkbox"] { accent-color: var(--gold); cursor: pointer; margin: 0; }
   .tzlabel {
     font-family: 'JetBrains Mono', monospace;
     font-size: 10px;
@@ -81,7 +111,7 @@
     cursor: pointer;
   }
   .tz-select:focus { outline: 1px solid var(--gold); }
-  .tzhint { font-size: 12px; color: var(--muted); }
+  .tzhint { font-size: 12px; color: var(--muted); margin-bottom: 34px; }
 
   .stat-strip {
     display: grid;
@@ -249,21 +279,21 @@
     .stat-strip { grid-template-columns: repeat(2, 1fr); }
     .grid-2 { grid-template-columns: 1fr; }
     h1 { font-size: 32px; }
-    .tzbar { flex-wrap: wrap; }
+    .appbar { flex-wrap: wrap; }
   }
 </style>
 </head>
 <body>
 <div class="wrap">
 
-  <div class="eyebrow">Trading Journal — XAUUSD</div>
+  <div class="eyebrow">FP-MTR EdgeReport · FundingPips</div>
   <h1>Trading Edge Report</h1>
   <div class="subtitle">
     <b id="sTrades">0</b> closed trades across <b id="sAccts">0</b> account(s)
     &nbsp;·&nbsp; <span id="sRange">05 May 2026 → 23 Jul 2026</span> &nbsp;·&nbsp; shown in <b id="sTz">UTC+0</b>
   </div>
 
-  <div class="tzbar">
+  <div class="appbar">
     <span class="tzlabel">Time zone</span>
     <select id="tz" class="tz-select">
       <option value="auto" selected id="tzAuto">My time (auto)</option>
@@ -294,8 +324,16 @@
       <option value="13">UTC+13</option>
       <option value="14">UTC+14</option>
     </select>
-    <span class="tzhint">MatchTrader exports server time in UTC+0. "My time" uses your browser's local clock; pick any other offset to view in a specific zone.</span>
+    <span class="tzlabel">Account</span>
+    <select id="acct" class="tz-select"></select>
+    <label class="tog-row" title="Archived accounts (closed with FundingPips) are excluded by default">
+      <input type="checkbox" id="archTog">
+      <span>Include archived</span>
+    </label>
+    <div class="spacer"></div>
+    <button type="button" id="logoutBtn" class="btn-logout">Log out</button>
   </div>
+  <div class="tzhint">MatchTrader exports server time in UTC+0. "My time" uses your browser's local clock; pick any other offset to view in a specific zone.</div>
 
   <div class="stat-strip">
     <div class="stat">
@@ -326,7 +364,7 @@
       <span class="section-num">01</span>
       <h2>Equity Curve — Cumulative R</h2>
     </div>
-    <div class="section-desc">Running total of R multiples in chronological order across both accounts. Flat or declining stretches are where the edge disappeared, not just where losses happened to cluster.</div>
+    <div class="section-desc">Running total of R multiples in chronological order across all accounts. Flat or declining stretches are where the edge disappeared, not just where losses happened to cluster.</div>
     <div class="panel">
       <div class="panel-title">Cumulative R over time</div>
       <div id="equity"></div>
@@ -400,7 +438,7 @@
   </section>
 
   <footer>
-    <span>XAUUSD · R multiple = reward ÷ original stop distance</span>
+    <span>R multiple = reward ÷ original stop distance</span>
     <span>Source files: CLOSED_POSITIONS_1972530, CLOSED_POSITIONS_2013767</span>
   </footer>
 

@@ -44,6 +44,7 @@
     max-width: 400px;
     background: var(--panel);
     border: 1px solid var(--border);
+    border-radius: 10px;
     padding: 40px 36px 36px;
   }
   .eyebrow {
@@ -85,7 +86,7 @@
     font-size: 15px;
     padding: 11px 13px;
     outline: none;
-    border-radius: 0;
+    border-radius: 6px;
   }
   .field input:focus { border-color: var(--gold); }
   .pass-row { position: relative; }
@@ -129,6 +130,7 @@
     cursor: pointer;
     margin-top: 6px;
     letter-spacing: 0.02em;
+    border-radius: 6px;
   }
   button.login:hover { background: var(--gold-soft); }
   button.login:disabled { opacity: 0.55; cursor: default; }
@@ -140,93 +142,30 @@
   }
 
   /* ── report view ────────────────────────────────────────────────────────── */
-  .topbar {
-    display: flex;
-    align-items: center;
-    gap: 18px;
-    padding: 16px 28px;
-    border-bottom: 1px solid var(--border);
-  }
-  .brand {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 13px;
-    font-weight: 600;
-    letter-spacing: 0.16em;
-    color: var(--gold-soft);
-    white-space: nowrap;
-  }
-  .topbar .spacer { flex: 1; }
-  .who {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11px;
-    color: var(--muted);
-    letter-spacing: 0.04em;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 260px;
-  }
-  button.logout {
-    background: none;
-    border: 1px solid var(--border);
-    color: var(--muted);
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-    padding: 8px 14px;
-    cursor: pointer;
-    white-space: nowrap;
-  }
-  button.logout:hover { color: var(--text); border-color: var(--gold); }
-  .acct-filter {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-  .acct-filter label {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-    color: var(--muted);
-    white-space: nowrap;
-  }
-  select.acct {
-    background: var(--panel-2);
-    border: 1px solid var(--border);
-    color: var(--text);
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
-    padding: 8px 10px;
-    outline: none;
-    border-radius: 0;
-    max-width: 250px;
-    cursor: pointer;
-  }
-  select.acct:focus { border-color: var(--gold); }
-  select.acct option { background: var(--panel-2); color: var(--text); }
-  .status {
-    padding: 18px 28px;
-    color: var(--muted);
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
-    letter-spacing: 0.05em;
-  }
-  .status a { color: var(--gold-soft); }
   #reportFrame {
     width: 100%;
-    height: calc(100vh - 57px);
+    height: 100vh;
     border: none;
     display: block;
   }
-  .hidden { display: none !important; }
-
-  @media (max-width: 640px) {
-    .topbar { flex-wrap: wrap; padding: 14px 18px; }
-    .who { max-width: 150px; }
-    .login-card { padding: 32px 24px 28px; }
+  .toast {
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
+    max-width: 420px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--muted);
+    letter-spacing: 0.03em;
+    display: none;
+    z-index: 50;
   }
+  .toast.show { display: block; }
+  .hidden { display: none !important; }
 </style>
 </head>
 <body>
@@ -259,28 +198,27 @@
 
 <!-- ── report ────────────────────────────────────────────────────────────── -->
 <div id="reportView" class="hidden">
-  <div class="topbar">
-    <span class="brand">FP-MTR EDGEREPORT</span>
-    <div class="spacer"></div>
-    <div class="acct-filter">
-      <label for="acctFilter">Account</label>
-      <select id="acctFilter" class="acct"></select>
-    </div>
-    <span class="who" id="whoAmI"></span>
-    <button type="button" id="logoutBtn" class="logout">Log out</button>
-  </div>
-  <div class="status" id="statusLine">Loading…</div>
   <iframe id="reportFrame" title="Trading Edge Report"></iframe>
 </div>
+<div id="toast" class="toast"></div>
 
 <script>
 const $ = (id) => document.getElementById(id)
 
 const loginView = $("loginView")
 const reportView = $("reportView")
-const statusLine = $("statusLine")
 const frame = $("reportFrame")
 const errorBox = $("errorBox")
+const toast = $("toast")
+
+function setStatus(msg) {
+  toast.textContent = msg
+  toast.classList.add("show")
+}
+
+function clearStatus() {
+  toast.classList.remove("show")
+}
 
 function showError(msg) {
   errorBox.textContent = msg
@@ -298,21 +236,13 @@ $("passToggle").addEventListener("click", () => {
 // ── build the report inside the iframe ─────────────────────────────────────
 let stateAccounts = []
 let stateDays = 90
+let stateAcct = ""
+let stateTz = "auto"
+let stateArchived = JSON.parse(localStorage.getItem("fpArchived") || "[]")
+let stateIncludeArchived = false
 
-function populateAcctFilter(accounts) {
-  const sel = $("acctFilter")
-  sel.innerHTML = ""
-  const all = document.createElement("option")
-  all.value = ""
-  all.textContent = "All accounts"
-  sel.appendChild(all)
-  for (const a of accounts) {
-    const opt = document.createElement("option")
-    opt.value = a.tradingAccountId
-    opt.textContent = a.tradingAccountId + (a.name ? " · " + a.name : "")
-    sel.appendChild(opt)
-  }
-  sel.value = ""
+function saveArchived() {
+  localStorage.setItem("fpArchived", JSON.stringify(stateArchived))
 }
 
 async function parseJson(res) {
@@ -327,17 +257,23 @@ async function parseJson(res) {
 }
 
 async function renderReport(days, acct) {
-  statusLine.textContent = "Fetching your trades…"
-  const res = await fetch("/api/report?days=" + days + (acct ? "&acct=" + encodeURIComponent(acct) : ""))
+  if (!stateIncludeArchived && stateArchived.includes(stateAcct)) stateAcct = ""
+  const exclude = stateIncludeArchived ? [] : stateArchived
+  setStatus("Fetching your trades…")
+  let url = "/api/report?days=" + days + (acct ? "&acct=" + encodeURIComponent(acct) : "")
+  if (exclude.length) url += "&exclude=" + exclude.join(",")
+  const res = await fetch(url)
   const data = await parseJson(res)
   if (!res.ok) throw new Error(data.error || "report failed")
-  const failed = data.perAccount.filter((a) => a.error)
-  const okCount = data.perAccount.length - failed.length
-  const scope = acct ? " · account " + acct : " across " + okCount + " account(s)"
-  const failures = failed.length
-    ? " — " + failed.map((a) => a.accountId + " (" + a.error + ")").join(", ")
-    : ""
-  statusLine.textContent = data.trades.length + " closed trades" + scope + failures + " — building report…"
+  const newlyArchived = data.perAccount.filter((a) => a.authFailed && !stateArchived.includes(a.accountId))
+  if (newlyArchived.length) {
+    stateArchived = stateArchived.concat(newlyArchived.map((a) => a.accountId))
+    saveArchived()
+    setStatus("Marked archived: " + newlyArchived.map((a) => a.accountId).join(", ") + " — rebuilding…")
+    await new Promise((r) => setTimeout(r, 600))
+    return renderReport(stateDays, stateAcct)
+  }
+  setStatus("Building report…")
   const tplRes = await fetch("/report-template")
   if (!tplRes.ok) throw new Error("report template missing")
   let tpl = await tplRes.text()
@@ -346,32 +282,93 @@ async function renderReport(days, acct) {
     "Source files: CLOSED_POSITIONS_1972530, CLOSED_POSITIONS_2013767",
     "Accounts: " + data.perAccount.filter((a) => !a.error).map((a) => "CLOSED_POSITIONS_" + a.accountId).join(", "),
   )
+  tpl = tpl.replace('<option value="auto" selected', '<option value="auto"')
+  if (stateTz !== "auto") tpl = tpl.replace('<option value="' + stateTz + '">', '<option value="' + stateTz + '" selected>')
   frame.srcdoc = tpl
-  statusLine.textContent = data.trades.length + " closed trades" + scope + failures + " · fetched from your IP"
-}
-
-async function showReportFailure(err) {
-  statusLine.textContent = "Report failed: " + err.message
-  if (/log in again|401/.test(err.message)) {
-    statusLine.textContent += " — logging out…"
-    await fetch("/api/logout", { method: "POST" }).catch(() => {})
-    frame.srcdoc = ""
-    reportView.classList.add("hidden")
-    loginView.classList.remove("hidden")
-    $("password").value = ""
+  clearStatus()
+  const failed = data.perAccount.filter((a) => a.error)
+  if (failed.length) {
+    setStatus(
+      failed
+        .map((a) => a.accountId + (a.authFailed ? " archived (401)" : " failed: " + a.error))
+        .join(" · "),
+    )
   }
 }
 
-$("acctFilter").addEventListener("change", () => {
-  renderReport(stateDays, $("acctFilter").value).catch(showReportFailure)
-})
+frame.onload = () => {
+  try {
+    const doc = frame.contentDocument
+    if (!doc) return
+    const sel = doc.getElementById("acct")
+    if (sel) {
+      sel.innerHTML = ""
+      const all = doc.createElement("option")
+      all.value = ""
+      all.textContent = "All accounts"
+      sel.appendChild(all)
+      for (const a of stateAccounts) {
+        const isArch = stateArchived.includes(a.tradingAccountId)
+        if (isArch && !stateIncludeArchived) continue
+        const o = doc.createElement("option")
+        o.value = a.tradingAccountId
+        o.textContent = a.tradingAccountId + (a.name ? " · " + a.name : "") + (isArch ? " (archived)" : "")
+        sel.appendChild(o)
+      }
+      sel.value = stateAcct
+      sel.onchange = () => {
+        stateAcct = sel.value
+        renderReport(stateDays, stateAcct).catch(showReportFailure)
+      }
+    }
+    const tog = doc.getElementById("archTog")
+    if (tog) {
+      tog.checked = stateIncludeArchived
+      tog.onchange = () => {
+        stateIncludeArchived = tog.checked
+        renderReport(stateDays, stateAcct).catch(showReportFailure)
+      }
+    }
+    const lb = doc.getElementById("logoutBtn")
+    if (lb) lb.onclick = logout
+    const tz = doc.getElementById("tz")
+    if (tz) tz.onchange = () => { stateTz = tz.value }
+  } catch {}
+}
+
+async function showReportFailure(err) {
+  if (/log in again|session expired/.test(err.message)) {
+    setStatus("Session expired — logging out…")
+    await fetch("/api/logout", { method: "POST" }).catch(() => {})
+    setTimeout(() => {
+      frame.srcdoc = ""
+      reportView.classList.add("hidden")
+      loginView.classList.remove("hidden")
+      $("password").value = ""
+      clearStatus()
+      showError("Session expired — please log in again.")
+    }, 900)
+    return
+  }
+  setStatus("Report failed: " + err.message)
+}
+
+async function logout() {
+  await fetch("/api/logout", { method: "POST" })
+  frame.srcdoc = ""
+  reportView.classList.add("hidden")
+  loginView.classList.remove("hidden")
+  $("password").value = ""
+  stateAcct = ""
+  stateTz = "auto"
+  clearStatus()
+}
 
 function enterReport(email, accounts) {
   loginView.classList.add("hidden")
   reportView.classList.remove("hidden")
   stateAccounts = accounts
-  populateAcctFilter(accounts)
-  $("whoAmI").textContent = email + " · " + accounts.length + " account(s)"
+  renderReport(stateDays, stateAcct).catch(showReportFailure)
 }
 
 // ── login ──────────────────────────────────────────────────────────────────
@@ -390,7 +387,6 @@ $("loginForm").addEventListener("submit", async (e) => {
     const data = await parseJson(res)
     if (!res.ok) throw new Error(data.error || "login failed")
     enterReport(data.email, data.accounts)
-    renderReport(90, "").catch(showReportFailure)
   } catch (err) {
     showError(err.message)
   } finally {
@@ -399,17 +395,14 @@ $("loginForm").addEventListener("submit", async (e) => {
   }
 })
 
-// ── logout ─────────────────────────────────────────────────────────────────
-$("logoutBtn").addEventListener("click", async () => {
-  await fetch("/api/logout", { method: "POST" })
-  frame.srcdoc = ""
-  reportView.classList.add("hidden")
-  loginView.classList.remove("hidden")
-  $("password").value = ""
-})
-
 // ── restore saved session on load ──────────────────────────────────────────
 ;(async function init() {
+  if (location.hostname.endsWith(".vercel.app")) {
+    $("hostedNote").style.display = "block"
+    $("loginBtn").disabled = true
+    loginView.classList.remove("hidden")
+    return
+  }
   let loggedIn = false
   try {
     const res = await fetch("/api/status")
@@ -417,7 +410,6 @@ $("logoutBtn").addEventListener("click", async () => {
     if (data.loggedIn) {
       loggedIn = true
       enterReport(data.email, data.accounts)
-      renderReport(90, "").catch(showReportFailure)
     }
   } catch {
     $("hostedNote").style.display = "block"
