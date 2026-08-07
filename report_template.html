@@ -122,7 +122,7 @@
 
   .stat-strip {
     display: grid;
-    grid-template-columns: repeat(6, 1fr);
+    grid-template-columns: repeat(7, 1fr);
     gap: 1px;
     background: var(--border);
     border: 1px solid var(--border);
@@ -377,8 +377,13 @@
       <div class="value" id="sWr">55.4%</div>
     </div>
     <div class="stat">
-      <div class="label">Avg Profit / Trade</div>
+      <div class="label">Avg RR</div>
       <div class="value pos" id="sAvg">+4.20</div>
+      <div class="sub">avg RR, no BE, no losses</div>
+    </div>
+    <div class="stat">
+      <div class="label">Avg Profit / Trade</div>
+      <div class="value pos" id="sAvgP">+1.96</div>
       <div class="sub">winners only, above 0.2%</div>
     </div>
     <div class="stat">
@@ -755,6 +760,9 @@ function render() {
     const avgEl = document.getElementById("sAvg");
     avgEl.textContent = "—";
     avgEl.className = "value";
+    const avgPEl = document.getElementById("sAvgP");
+    avgPEl.textContent = "—";
+    avgPEl.className = "value";
     document.getElementById("sTotal").textContent = "—";
     const evEl = document.getElementById("sEV");
     evEl.textContent = "—";
@@ -776,8 +784,12 @@ function render() {
   const avgW = winTs.length ? winTs.reduce((s, t) => s + t.R, 0) / winTs.length : 0;
   const avgL = lossTs.length ? lossTs.reduce((s, t) => s + t.R, 0) / lossTs.length : 0;
   const avgEl = document.getElementById("sAvg");
-  avgEl.textContent = signed(avgW, 2) + "%";
-  avgEl.className = "value" + (avgW < 0 ? " neg" : " pos");
+  const rr = avgL < 0 ? avgW / -avgL : 0;
+  avgEl.textContent = rr ? rr.toFixed(2) : "—";
+  avgEl.className = "value" + (rr >= 1 ? " pos" : " neg");
+  const avgPEl = document.getElementById("sAvgP");
+  avgPEl.textContent = signed(avgW, 2) + "%";
+  avgPEl.className = "value" + (avgW < 0 ? " neg" : " pos");
   const totalEl = document.getElementById("sTotal");
   totalEl.textContent = signed(A.sumR, 2) + "%";
   totalEl.className = "value" + (A.sumR < 0 ? " neg" : " pos");
