@@ -93,11 +93,23 @@ async function getPage(): Promise<Page> {
       locale: "en-US",
       viewport: { width: 1280, height: 800 },
     })
+    const saved = loadSession()
+    if (saved?.cookies?.length) {
+      await ctx.addCookies(
+        saved.cookies.map((c) => ({
+          name: c.name,
+          value: c.value,
+          domain: ".fundingpips.com",
+          path: "/",
+        })),
+      )
+      console.log(`[startup] restored ${saved.cookies.length} session cookie(s)`)
+    }
   }
   const pg = await ctx!.newPage()
   pg.setDefaultTimeout(120_000)
   await pg.goto(baseURL + "/sign-in", { waitUntil: "domcontentloaded", timeout: 60_000 }).catch(() => {})
-  await pg.waitForTimeout(4000)
+  await pg.waitForTimeout(1500)
   pagePool[idx] = pg
   return pg
 }
@@ -139,7 +151,30 @@ async function fpFetch(path: string, method: string, body?: unknown, headers: Re
   return fpBrowser(path, method, body, headers)
 }
 
+// A real sign-in revives the MTR backend session that co-login alone cannot.
+async function realSignIn(pg: Page, email: string, password: string): Promise<boolean> {
+  try {
+    await pg.goto(baseURL + "/sign-in", { waitUntil: "domcontentloaded", timeout: 60_000 })
+    await pg.waitForTimeout(1500)
+    const emailSel = "input[type=email], input[name=email], input#email, input[name=username]"
+    const passSel = "input[type=password]"
+    await pg.waitForSelector(emailSel, { timeout: 10_000 })
+    await pg.fill(emailSel, email)
+    if (await pg.$(passSel)) await pg.fill(passSel, password)
+    await pg.click("button[type=submit]").catch(() => pg.click("form button").catch(() => pg.keyboard.press("Enter")))
+    await pg.waitForTimeout(4000)
+    const gone = !pg.url().includes("/sign-in")
+    if (gone) console.log("[login] real sign-in ok")
+    return gone
+  } catch {
+    console.log("[login] real sign-in unavailable (captcha/2fa?) — using co-login only")
+    return false
+  }
+}
+
 async function login(email: string, password: string): Promise<Session> {
+  const pg = await getPage()
+  await realSignIn(pg, email, password)
   const res = await fpFetch("/manager/co-login", "POST", { email, password, brokerId: brokerID })
   if (res.status !== 200) {
     throw new Error(`login failed (HTTP ${res.status}): ${res.text.slice(0, 200)}`)
@@ -153,11 +188,10 @@ async function login(email: string, password: string): Promise<Session> {
     }>
   }
   if (!data.accounts?.length) throw new Error("no accounts found on this email")
-  console.log("[co-login] account fields:", JSON.stringify(data.accounts.map((a) => {
-    const copy: Record<string, unknown> = {}
-    for (const [k, v] of Object.entries(a)) copy[k] = k.toLowerCase().includes("token") ? "[redacted]" : v
-    return copy
-  }), null, 2))
+  console.log(`[login] ${data.email} — ${data.accounts.length} account(s)`)
+  for (const a of data.accounts) {
+    console.log(`  ${a.tradingAccountId}  ${a.offer.description || a.offer.name || ""}`)
+  }
   const session: Session = {
     email: data.email,
     accounts: data.accounts.map((a) => ({
@@ -167,6 +201,13 @@ async function login(email: string, password: string): Promise<Session> {
     })),
     cookies: [],
     savedAt: new Date().toISOString(),
+  }
+  try {
+    const cookies = await ctx!.cookies(baseURL)
+    session.cookies = cookies.map((c) => ({ name: c.name, value: c.value }))
+    console.log(`[login] saved ${session.cookies.length} browser cookie(s)`)
+  } catch {
+    console.log("[login] could not read cookies")
   }
   saveSession(session)
   return session
@@ -200,7 +241,78 @@ function toTrade(acct: string, op: Operation, balance: number): [string, string,
   return [acct, fmtDT(op.openTime), pct, net]
 }
 
+async function fetchAccount(account: SessionAccount, from: Date, to: Date) {
+  const accountTrades: Array<[string, string, number, number]> = []
+  const h = { "auth-trading-api": account.tradingApiToken, Referer: baseURL + "/app/portfolio" }
+  let res: { status: number; text: string }
+  try {
+    res = await fpFetch(`/mtr-api/${systemUUID}/balance`, "GET", undefined, h)
+  } catch (err) {
+    return { entry: { accountId: account.tradingAccountId, name: account.name, count: 0, net: 0, error: (err as Error).message }, trades: accountTrades }
+  }
+  if (res.status !== 200) {
+    return {
+      entry: {
+        accountId: account.tradingAccountId,
+        name: account.name,
+        count: 0,
+        net: 0,
+        error: `HTTP ${res.status}: ${res.text.slice(0, 300)}`,
+        authFailed: res.status === 401,
+      },
+      trades: accountTrades,
+    }
+  }
+  let balance = 0
+  try {
+    const bal = JSON.parse(res.text) as { balance?: string | number }
+    balance = Number(bal.balance ?? 0)
+  } catch {}
+  try {
+    res = await fpFetch(
+      `/mtr-api/${systemUUID}/closed-positions`,
+      "POST",
+      { from: from.toISOString(), to: to.toISOString(), symbols: [] },
+      { "auth-trading-api": account.tradingApiToken, Referer: baseURL + "/app/portfolio/closed" },
+    )
+  } catch (err) {
+    return { entry: { accountId: account.tradingAccountId, name: account.name, count: 0, net: 0, error: (err as Error).message }, trades: accountTrades }
+  }
+  if (res.status !== 200) {
+    return {
+      entry: {
+        accountId: account.tradingAccountId,
+        name: account.name,
+        count: 0,
+        net: 0,
+        error: `HTTP ${res.status}: ${res.text.slice(0, 300)}`,
+        authFailed: res.status === 401,
+      },
+      trades: accountTrades,
+    }
+  }
+  const data = JSON.parse(res.text) as { operations: Operation[] }
+  const ops = data.operations ?? []
+  let net = 0
+  for (const op of ops) net += Number(op.netProfit ?? 0)
+  const base = balance - net > 0 ? balance - net : balance
+  for (const op of ops) accountTrades.push(toTrade(account.tradingAccountId, op, base))
+  return {
+    entry: {
+      accountId: account.tradingAccountId,
+      name: account.name,
+      count: ops.length,
+      net,
+      balance,
+      base,
+      ret: base > 0 ? Math.round((net / base) * 10000) / 100 : 0,
+    },
+    trades: accountTrades,
+  }
+}
+
 async function fetchReport(session: Session, days: number, onlyAccountId?: string, excludeIds?: Set<string>) {
+  const start = Date.now()
   const to = new Date()
   const from = new Date(to.getTime() - days * 24 * 3600 * 1000)
   const trades: Array<[string, string, number, number]> = []
@@ -208,81 +320,32 @@ async function fetchReport(session: Session, days: number, onlyAccountId?: strin
   const accounts = session.accounts.filter(
     (a) => (!onlyAccountId || a.tradingAccountId === onlyAccountId) && !excludeIds?.has(a.tradingAccountId),
   )
-  const results = await Promise.all(
-    accounts.map(async (account) => {
-      const accountTrades: Array<[string, string, number, number]> = []
-      const h = { "auth-trading-api": account.tradingApiToken, Referer: baseURL + "/app/portfolio" }
-      let res: { status: number; text: string }
-      try {
-        res = await fpFetch(`/mtr-api/${systemUUID}/balance`, "GET", undefined, h)
-      } catch (err) {
-        return { entry: { accountId: account.tradingAccountId, name: account.name, count: 0, net: 0, error: (err as Error).message }, trades: accountTrades }
-      }
-      if (res.status !== 200) {
-        return {
-          entry: {
-            accountId: account.tradingAccountId,
-            name: account.name,
-            count: 0,
-            net: 0,
-            error: `HTTP ${res.status}: ${res.text.slice(0, 120)}`,
-            authFailed: res.status === 401,
-          },
-          trades: accountTrades,
-        }
-      }
-      let balance = 0
-      try {
-        const bal = JSON.parse(res.text) as { balance?: string | number }
-        balance = Number(bal.balance ?? 0)
-      } catch {}
-      try {
-        res = await fpFetch(
-          `/mtr-api/${systemUUID}/closed-positions`,
-          "POST",
-          { from: from.toISOString(), to: to.toISOString(), symbols: [] },
-          { "auth-trading-api": account.tradingApiToken, Referer: baseURL + "/app/portfolio/closed" },
-        )
-      } catch (err) {
-        return { entry: { accountId: account.tradingAccountId, name: account.name, count: 0, net: 0, error: (err as Error).message }, trades: accountTrades }
-      }
-      if (res.status !== 200) {
-        return {
-          entry: {
-            accountId: account.tradingAccountId,
-            name: account.name,
-            count: 0,
-            net: 0,
-            error: `HTTP ${res.status}: ${res.text.slice(0, 120)}`,
-            authFailed: res.status === 401,
-          },
-          trades: accountTrades,
-        }
-      }
-      const data = JSON.parse(res.text) as { operations: Operation[] }
-      const ops = data.operations ?? []
-      let net = 0
-      for (const op of ops) net += Number(op.netProfit ?? 0)
-      const base = balance - net > 0 ? balance - net : balance
-      for (const op of ops) accountTrades.push(toTrade(account.tradingAccountId, op, base))
-      return {
-        entry: {
-          accountId: account.tradingAccountId,
-          name: account.name,
-          count: ops.length,
-          net,
-          balance,
-          base,
-          ret: base > 0 ? Math.round((net / base) * 10000) / 100 : 0,
-        },
-        trades: accountTrades,
-      }
-    }),
-  )
+  const results: Array<Awaited<ReturnType<typeof fetchAccount>>> = []
+  const maxAttempts = accounts.length === 1 ? 3 : 2
+  for (const a of accounts) {
+    let r = await fetchAccount(a, from, to)
+    for (let attempt = 1; attempt < maxAttempts && r.entry?.authFailed; attempt++) {
+      console.log(`[report] retrying ${a.tradingAccountId}… (${attempt}/${maxAttempts - 1})`)
+      await new Promise((res) => setTimeout(res, 1500))
+      r = await fetchAccount(a, from, to)
+    }
+    results.push(r)
+  }
   for (const r of results) {
     if (r.entry) perAccount.push(r.entry)
     for (const t of r.trades) trades.push(t)
   }
+  const ms = Date.now() - start
+  console.log(`[report] last ${days}d — ${perAccount.length} account(s) — ${ms}ms`)
+  for (const e of perAccount) {
+    if (e.error) {
+      const clean = e.error.replace(/\s+/g, " ").replace(/^HTTP /, "http ").slice(0, 90)
+      console.log(`  ERR ${e.accountId}  ${clean}`)
+    } else {
+      console.log(`  OK  ${e.accountId}  balance ${Number(e.balance ?? 0).toFixed(2)}  trades ${e.count}  net ${Number(e.net ?? 0).toFixed(2)}  ${e.ret}%`)
+    }
+  }
+  console.log(`  -> ${trades.length} trade(s)`)
   return { trades, perAccount }
 }
 
@@ -319,6 +382,7 @@ function serveStatic(pathname: string): Response {
 // ── routes ─────────────────────────────────────────────────────────────────
 const server = Bun.serve({
   port: PORT,
+  idleTimeout: 30,
   async fetch(req) {
     const url = new URL(req.url)
     const method = req.method
@@ -386,3 +450,11 @@ const server = Bun.serve({
 })
 
 console.log(`FP-MTR EdgeReport site: http://localhost:${server.port}`)
+
+// ── warm up the browser pool so the first login is fast ───────────────────
+for (let i = 0; i < MAX_PAGES; i++) {
+  getPage().catch((err) => {
+    if (!browserFailed) console.log("[warmup] " + (err as Error).message)
+    browserFailed = true
+  })
+}
