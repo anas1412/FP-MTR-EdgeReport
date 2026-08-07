@@ -310,6 +310,7 @@ $("passToggle").addEventListener("click", () => {
 
 // ── build the report inside the iframe ─────────────────────────────────────
 let stateAccounts = []
+let stateEmail = ""
 let stateDays = 3650
 let stateAcct = ""
 let stateTz = "auto"
@@ -383,6 +384,7 @@ async function renderReport(days, acct) {
     const tplRes = await apiCall("template")
     let tpl = tplRes.data
     tpl = tpl.replace("__TRADES__", JSON.stringify(data.trades))
+    tpl = tpl.replace("__EMAIL__", stateEmail.replace(/&/g, "&amp;").replace(/</g, "&lt;"))
     tpl = tpl.replace(
       "Source files: CLOSED_POSITIONS_1972530, CLOSED_POSITIONS_2013767",
       "Accounts: " + data.perAccount.filter((a) => !a.error).map((a) => "CLOSED_POSITIONS_" + a.accountId).join(", "),
@@ -488,6 +490,7 @@ function enterReport(email, accounts) {
   loginView.classList.add("hidden")
   reportView.classList.remove("hidden")
   stateAccounts = accounts
+  stateEmail = email
   renderReport(stateDays, stateAcct).catch(showReportFailure)
 }
 

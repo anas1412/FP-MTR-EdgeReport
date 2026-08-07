@@ -53,10 +53,7 @@ function clearSession() {
 // still originate from YOUR machine's IP. Cookies and CF clearance live in
 // the browser context (survive across calls in one server run).
 
-import { spawnSync } from "child_process"
-import { chromium, type Browser, type Page } from "playwright-core"
-
-const cookieJarFile = join(root, ".session-cookies.txt")
+import { chromium, type Browser, type BrowserContext, type Page } from "playwright-core"
 
 const chromiumCandidates = [
   process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE,
@@ -72,29 +69,37 @@ const chromiumCandidates = [
 ].filter((p): p is string => !!p && existsSync(p))
 const execPath = chromiumCandidates.find((p) => existsSync(p))
 
+const MAX_PAGES = 3
 let browser: Browser | null = null
-let page: Page | null = null
+let ctx: BrowserContext | null = null
+let pagePool: Page[] = []
+let pageCursor = 0
 let browserFailed = false
 
 async function getPage(): Promise<Page> {
-  if (page) return page
   if (browserFailed || !execPath) {
     throw new Error("chromium not found — install it (bunx playwright-core install chromium) or set PLAYWRIGHT_CHROMIUM_EXECUTABLE")
   }
-  browser = await chromium.launch({
-    executablePath: execPath,
-    headless: true,
-    args: ["--no-sandbox", "--disable-blink-features=AutomationControlled", "--disable-dev-shm-usage"],
-  })
-  const ctx = await browser.newContext({
-    userAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-    locale: "en-US",
-    viewport: { width: 1280, height: 800 },
-  })
-  page = await ctx.newPage()
-  await page.goto(baseURL + "/sign-in", { waitUntil: "domcontentloaded", timeout: 60_000 }).catch(() => {})
-  await page.waitForTimeout(4000)
-  return page
+  const idx = pageCursor++ % MAX_PAGES
+  if (pagePool[idx]) return pagePool[idx]
+  if (!browser) {
+    browser = await chromium.launch({
+      executablePath: execPath,
+      headless: true,
+      args: ["--no-sandbox", "--disable-blink-features=AutomationControlled", "--disable-dev-shm-usage"],
+    })
+    ctx = await browser.newContext({
+      userAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+      locale: "en-US",
+      viewport: { width: 1280, height: 800 },
+    })
+  }
+  const pg = await ctx!.newPage()
+  pg.setDefaultTimeout(120_000)
+  await pg.goto(baseURL + "/sign-in", { waitUntil: "domcontentloaded", timeout: 60_000 }).catch(() => {})
+  await pg.waitForTimeout(4000)
+  pagePool[idx] = pg
+  return pg
 }
 
 const isBlockPage = (text: string) =>
@@ -130,44 +135,8 @@ async function fpBrowser(path: string, method: string, body?: unknown, headers: 
   return last
 }
 
-// curl fallback (only used when Chromium cannot start)
-function browserArgs(): string[] {
-  return [
-    "-H", "User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-    "-H", "Accept: application/json, text/plain, */*",
-    "-H", "Accept-Language: en-US,en;q=0.9",
-    "-H", "Origin: " + baseURL,
-    "-H", "Referer: " + baseURL + "/sign-in",
-    "-H", 'Sec-Ch-Ua: "Google Chrome";v="125", "Chromium";v="125", "Not.A/Brand";v="24"',
-    "-H", "Sec-Ch-Ua-Mobile: ?0",
-    "-H", 'Sec-Ch-Ua-Platform: "Linux"',
-    "-H", "Sec-Fetch-Dest: empty",
-    "-H", "Sec-Fetch-Mode: cors",
-    "-H", "Sec-Fetch-Site: same-origin",
-    "-H", "X-Browser-Id: " + browserID,
-    "-H", "Content-Type: application/json",
-    "-b", cookieJarFile,
-    "-c", cookieJarFile,
-  ]
-}
-
-function fpCurl(path: string, method: string, body?: unknown, extraHeaders: string[] = []): Promise<{ status: number; text: string }> {
-  const args = ["-sS", "-X", method, ...browserArgs(), ...extraHeaders]
-  if (body !== undefined) args.push("--data-binary", JSON.stringify(body))
-  args.push("-w", "\n%{http_code}", baseURL + path)
-  const out = spawnSync("curl", args, { encoding: "utf8", timeout: 20_000 })
-  if (out.error) return Promise.reject(new Error("curl failed: " + out.error.message))
-  const lines = out.stdout.trimEnd().split("\n")
-  const status = Number(lines.pop())
-  return Promise.resolve({ status, text: lines.join("\n") })
-}
-
 async function fpFetch(path: string, method: string, body?: unknown, headers: Record<string, string> = {}): Promise<{ status: number; text: string }> {
-  try {
-    return await fpBrowser(path, method, body, headers)
-  } catch {
-    return fpCurl(path, method, body, Object.entries(headers).flatMap(([k, v]) => ["-H", k + ": " + v]))
-  }
+  return fpBrowser(path, method, body, headers)
 }
 
 async function login(email: string, password: string): Promise<Session> {
@@ -239,69 +208,80 @@ async function fetchReport(session: Session, days: number, onlyAccountId?: strin
   const accounts = session.accounts.filter(
     (a) => (!onlyAccountId || a.tradingAccountId === onlyAccountId) && !excludeIds?.has(a.tradingAccountId),
   )
-  const reportHeaders = { "auth-trading-api": "", Referer: baseURL + "/app/portfolio" }
-  for (const account of accounts) {
-    reportHeaders["auth-trading-api"] = account.tradingApiToken
-    let res: { status: number; text: string }
-    try {
-      res = await fpFetch(`/mtr-api/${systemUUID}/balance`, "GET", undefined, reportHeaders)
-    } catch (err) {
-      perAccount.push({ accountId: account.tradingAccountId, name: account.name, count: 0, net: 0, error: (err as Error).message })
-      continue
-    }
-    if (res.status !== 200) {
-      perAccount.push({
-        accountId: account.tradingAccountId,
-        name: account.name,
-        count: 0,
-        net: 0,
-        error: `HTTP ${res.status}: ${res.text.slice(0, 120)}`,
-        authFailed: res.status === 401,
-      })
-      continue
-    }
-    let balance = 0
-    try {
-      const bal = JSON.parse(res.text) as { balance?: string | number }
-      balance = Number(bal.balance ?? 0)
-    } catch {}
-    try {
-      res = await fpFetch(
-        `/mtr-api/${systemUUID}/closed-positions`,
-        "POST",
-        { from: from.toISOString(), to: to.toISOString(), symbols: [] },
-        { "auth-trading-api": account.tradingApiToken, Referer: baseURL + "/app/portfolio/closed" },
-      )
-    } catch (err) {
-      perAccount.push({ accountId: account.tradingAccountId, name: account.name, count: 0, net: 0, error: (err as Error).message })
-      continue
-    }
-    if (res.status !== 200) {
-      perAccount.push({
-        accountId: account.tradingAccountId,
-        name: account.name,
-        count: 0,
-        net: 0,
-        error: `HTTP ${res.status}: ${res.text.slice(0, 120)}`,
-        authFailed: res.status === 401,
-      })
-      continue
-    }
-    const data = JSON.parse(res.text) as { operations: Operation[] }
-    const ops = data.operations ?? []
-    let net = 0
-    for (const op of ops) net += Number(op.netProfit ?? 0)
-    const base = balance - net > 0 ? balance - net : balance
-    for (const op of ops) trades.push(toTrade(account.tradingAccountId, op, base))
-    perAccount.push({
-      accountId: account.tradingAccountId,
-      name: account.name,
-      count: ops.length,
-      net,
-      balance,
-      base,
-      ret: base > 0 ? Math.round((net / base) * 10000) / 100 : 0,
-    })
+  const results = await Promise.all(
+    accounts.map(async (account) => {
+      const accountTrades: Array<[string, string, number, number]> = []
+      const h = { "auth-trading-api": account.tradingApiToken, Referer: baseURL + "/app/portfolio" }
+      let res: { status: number; text: string }
+      try {
+        res = await fpFetch(`/mtr-api/${systemUUID}/balance`, "GET", undefined, h)
+      } catch (err) {
+        return { entry: { accountId: account.tradingAccountId, name: account.name, count: 0, net: 0, error: (err as Error).message }, trades: accountTrades }
+      }
+      if (res.status !== 200) {
+        return {
+          entry: {
+            accountId: account.tradingAccountId,
+            name: account.name,
+            count: 0,
+            net: 0,
+            error: `HTTP ${res.status}: ${res.text.slice(0, 120)}`,
+            authFailed: res.status === 401,
+          },
+          trades: accountTrades,
+        }
+      }
+      let balance = 0
+      try {
+        const bal = JSON.parse(res.text) as { balance?: string | number }
+        balance = Number(bal.balance ?? 0)
+      } catch {}
+      try {
+        res = await fpFetch(
+          `/mtr-api/${systemUUID}/closed-positions`,
+          "POST",
+          { from: from.toISOString(), to: to.toISOString(), symbols: [] },
+          { "auth-trading-api": account.tradingApiToken, Referer: baseURL + "/app/portfolio/closed" },
+        )
+      } catch (err) {
+        return { entry: { accountId: account.tradingAccountId, name: account.name, count: 0, net: 0, error: (err as Error).message }, trades: accountTrades }
+      }
+      if (res.status !== 200) {
+        return {
+          entry: {
+            accountId: account.tradingAccountId,
+            name: account.name,
+            count: 0,
+            net: 0,
+            error: `HTTP ${res.status}: ${res.text.slice(0, 120)}`,
+            authFailed: res.status === 401,
+          },
+          trades: accountTrades,
+        }
+      }
+      const data = JSON.parse(res.text) as { operations: Operation[] }
+      const ops = data.operations ?? []
+      let net = 0
+      for (const op of ops) net += Number(op.netProfit ?? 0)
+      const base = balance - net > 0 ? balance - net : balance
+      for (const op of ops) accountTrades.push(toTrade(account.tradingAccountId, op, base))
+      return {
+        entry: {
+          accountId: account.tradingAccountId,
+          name: account.name,
+          count: ops.length,
+          net,
+          balance,
+          base,
+          ret: base > 0 ? Math.round((net / base) * 10000) / 100 : 0,
+        },
+        trades: accountTrades,
+      }
+    }),
+  )
+  for (const r of results) {
+    if (r.entry) perAccount.push(r.entry)
+    for (const t of r.trades) trades.push(t)
   }
   return { trades, perAccount }
 }
