@@ -22,7 +22,7 @@ Then open **http://localhost:8787** in your browser.
 
 ## Live demo
 
-A demo with fake sample data (no real trades): https://fp-mtr-edgereport.vercel.app
+The public site at https://fp-mtr-edgereport.vercel.app shows the login screen only — the full app (with live data) runs locally.
 
 ## Troubleshooting
 

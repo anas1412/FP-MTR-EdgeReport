@@ -1,5 +1,5 @@
 {
-  "buildCommand": "node scripts/make-sample.mjs",
+  "buildCommand": "mkdir -p dist && cp -r public/. dist/",
   "outputDirectory": "dist",
   "framework": null
 }
