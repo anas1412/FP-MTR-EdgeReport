@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trading Edge Report — XAUUSD</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #14110F;
+    --panel: #1C1815;
+    --panel-2: #221D19;
+    --border: #332C24;
+    --gold: #C9962C;
+    --gold-soft: #E3B95A;
+    --text: #EDE6D6;
+    --muted: #948B7C;
+    --green: #4CAF7D;
+    --red: #D9534F;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    background-image:
+      radial-gradient(ellipse 900px 500px at 15% -10%, rgba(201,150,44,0.10), transparent 60%),
+      radial-gradient(ellipse 700px 500px at 100% 0%, rgba(201,150,44,0.06), transparent 60%);
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    line-height: 1.5;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 56px 28px 90px; }
+  .eyebrow {
+    font-family: 'JetBrains Mono', monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    font-size: 11px;
+    color: var(--gold-soft);
+    margin-bottom: 14px;
+  }
+  h1 {
+    font-family: 'Fraunces', serif;
+    font-weight: 600;
+    font-size: 44px;
+    margin: 0 0 6px;
+    letter-spacing: -0.01em;
+  }
+  .subtitle {
+    color: var(--muted);
+    font-size: 15px;
+    margin-bottom: 28px;
+  }
+  .subtitle b { color: var(--text); font-weight: 500; }
+
+  .tzbar {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 40px;
+    padding: 12px 16px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+  .tzlabel {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--gold-soft);
+  }
+  .tz-select {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12.5px;
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 7px 10px;
+    cursor: pointer;
+  }
+  .tz-select:focus { outline: 1px solid var(--gold); }
+  .tzhint { font-size: 12px; color: var(--muted); }
+
+  .stat-strip {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 52px;
+  }
+  .stat {
+    background: var(--panel);
+    padding: 20px 18px;
+  }
+  .stat .label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  .stat .value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 24px;
+    font-weight: 600;
+    color: var(--gold-soft);
+  }
+  .stat .value.pos { color: var(--green); }
+  .stat .value.neg { color: var(--red); }
+  .stat .sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+  section { margin-bottom: 56px; }
+  .section-head {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 12px;
+  }
+  .section-num {
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--gold);
+    font-size: 13px;
+  }
+  h2 {
+    font-family: 'Fraunces', serif;
+    font-weight: 600;
+    font-size: 22px;
+    margin: 0;
+  }
+  .section-desc {
+    color: var(--muted);
+    font-size: 13.5px;
+    margin: 12px 0 22px;
+    max-width: 640px;
+  }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; align-items: start; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px 8px;
+  }
+  .panel-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 6px;
+  }
+  .panel svg { width: 100%; height: auto; display: block; }
+  svg text { font-family: 'JetBrains Mono', monospace; }
+
+  table.data {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12.5px;
+    margin-top: 18px;
+  }
+  table.data th {
+    text-align: right;
+    color: var(--muted);
+    font-weight: 500;
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  table.data th:first-child { text-align: left; }
+  table.data td { padding: 8px 10px; border-bottom: 1px solid rgba(51,44,36,0.5); }
+  table.data td:first-child { text-align: left; color: var(--text); }
+  table.data td.num { text-align: right; color: var(--text); }
+  table.data td.pos { color: var(--green); }
+  table.data td.neg { color: var(--red); }
+  table.data tr:hover td { background: rgba(201,150,44,0.05); }
+
+  table.heatmap {
+    border-collapse: collapse;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    margin-top: 18px;
+    width: 100%;
+  }
+  table.heatmap th {
+    color: var(--muted);
+    font-weight: 500;
+    font-size: 10px;
+    padding: 6px 4px;
+    text-align: center;
+  }
+  table.heatmap td.wd-label {
+    color: var(--muted);
+    font-size: 10.5px;
+    padding-right: 10px;
+    text-align: right;
+  }
+  td.heat-cell {
+    text-align: center;
+    padding: 8px 4px;
+    border: 1px solid var(--bg);
+    border-radius: 4px;
+    min-width: 46px;
+  }
+  td.heat-cell.empty { color: rgba(148,139,124,0.25); }
+  .heat-r { display: block; font-size: 11px; font-weight: 600; color: var(--text); }
+  .heat-n { display: block; font-size: 8.5px; color: var(--muted); margin-top: 1px; }
+
+  .callout {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--gold);
+    border-radius: 6px;
+    padding: 18px 22px;
+    font-size: 14px;
+  }
+  .callout ul { margin: 10px 0 0; padding-left: 18px; }
+  .callout li { margin-bottom: 8px; color: var(--text); }
+  .callout li b { color: var(--gold-soft); }
+
+  .note {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 14px;
+  }
+
+  footer {
+    margin-top: 70px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    display: flex;
+    justify-content: space-between;
+  }
+
+  @media (max-width: 760px) {
+    .stat-strip { grid-template-columns: repeat(2, 1fr); }
+    .grid-2 { grid-template-columns: 1fr; }
+    h1 { font-size: 32px; }
+    .tzbar { flex-wrap: wrap; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="eyebrow">Trading Journal — XAUUSD</div>
+  <h1>Trading Edge Report</h1>
+  <div class="subtitle">
+    <b id="sTrades">0</b> closed trades across <b id="sAccts">0</b> account(s)
+    &nbsp;·&nbsp; <span id="sRange">05 May 2026 → 23 Jul 2026</span> &nbsp;·&nbsp; shown in <b id="sTz">UTC+0</b>
+  </div>
+
+  <div class="tzbar">
+    <span class="tzlabel">Time zone</span>
+    <select id="tz" class="tz-select">
+      <option value="auto" selected id="tzAuto">My time (auto)</option>
+      <option value="-11">UTC-11</option>
+      <option value="-10">UTC-10</option>
+      <option value="-9">UTC-9</option>
+      <option value="-8">UTC-8</option>
+      <option value="-7">UTC-7</option>
+      <option value="-6">UTC-6</option>
+      <option value="-5">UTC-5</option>
+      <option value="-4">UTC-4</option>
+      <option value="-3">UTC-3</option>
+      <option value="-2">UTC-2</option>
+      <option value="-1">UTC-1</option>
+      <option value="0">UTC+0 (MatchTrader)</option>
+      <option value="1">UTC+1</option>
+      <option value="2">UTC+2</option>
+      <option value="3">UTC+3</option>
+      <option value="4">UTC+4</option>
+      <option value="5">UTC+5</option>
+      <option value="6">UTC+6</option>
+      <option value="7">UTC+7</option>
+      <option value="8">UTC+8</option>
+      <option value="9">UTC+9</option>
+      <option value="10">UTC+10</option>
+      <option value="11">UTC+11</option>
+      <option value="12">UTC+12</option>
+      <option value="13">UTC+13</option>
+      <option value="14">UTC+14</option>
+    </select>
+    <span class="tzhint">MatchTrader exports server time in UTC+0. "My time" uses your browser's local clock; pick any other offset to view in a specific zone.</span>
+  </div>
+
+  <div class="stat-strip">
+    <div class="stat">
+      <div class="label">Trades</div>
+      <div class="value" id="sTradesV">74</div>
+    </div>
+    <div class="stat">
+      <div class="label">Win Rate</div>
+      <div class="value" id="sWr">55.4%</div>
+    </div>
+    <div class="stat">
+      <div class="label">Avg R / Trade</div>
+      <div class="value pos" id="sAvg">+4.20</div>
+    </div>
+    <div class="stat">
+      <div class="label">Total P&amp;L</div>
+      <div class="value pos" id="sPnl">+658.33</div>
+    </div>
+    <div class="stat">
+      <div class="label">Best Window</div>
+      <div class="value" id="sBest">Fri 10h</div>
+      <div class="sub">by avg R</div>
+    </div>
+  </div>
+
+  <section>
+    <div class="section-head">
+      <span class="section-num">01</span>
+      <h2>Equity Curve — Cumulative R</h2>
+    </div>
+    <div class="section-desc">Running total of R multiples in chronological order across both accounts. Flat or declining stretches are where the edge disappeared, not just where losses happened to cluster.</div>
+    <div class="panel">
+      <div class="panel-title">Cumulative R over time</div>
+      <div id="equity"></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <span class="section-num">02</span>
+      <h2>Edge by Day of Week</h2>
+    </div>
+    <div class="section-desc">Grouped by the day you <i>entered</i> the trade — not when it closed. Avg R is your expectancy per trade in that bucket.</div>
+    <div class="grid-2">
+      <div class="panel">
+        <div class="panel-title">Avg R by weekday</div>
+        <div id="dayChartR"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">Trade frequency by weekday</div>
+        <div id="dayChartN"></div>
+      </div>
+    </div>
+    <div id="dayTable"></div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <span class="section-num">03</span>
+      <h2>Edge by Entry Hour</h2>
+    </div>
+    <div class="section-desc">Same idea, by clock hour of entry (platform time, shown in <span id="tzdesc">UTC+0</span>). This is usually the sharpest lens on "when to avoid, when to trade."</div>
+    <div class="grid-2">
+      <div class="panel">
+        <div class="panel-title">Avg R by hour</div>
+        <div id="hourChartR"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">Trade frequency by hour</div>
+        <div id="hourChartN"></div>
+      </div>
+    </div>
+    <div id="hourTable"></div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <span class="section-num">04</span>
+      <h2>Weekday × Hour Matrix</h2>
+    </div>
+    <div class="section-desc">Every cell is a day/hour combination: top number is avg R, bottom number is trade count. Green = positive expectancy, red = negative. Empty cells mean you haven't traded that slot yet.</div>
+    <div id="heatmap"></div>
+    <div class="note" id="cellsNote"></div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <span class="section-num">05</span>
+      <h2>Takeaways</h2>
+    </div>
+    <div class="callout">
+      <ul id="takeaways"></ul>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <span class="section-num">06</span>
+      <h2>By Account</h2>
+    </div>
+    <div id="acctTable"></div>
+  </section>
+
+  <footer>
+    <span>XAUUSD · R multiple = reward ÷ original stop distance</span>
+    <span>Source files: CLOSED_POSITIONS_1972530, CLOSED_POSITIONS_2013767</span>
+  </footer>
+
+</div>
+
+<script>
+const TRADES = __TRADES__;
+
+const DAYS_FULL = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const DAYS3 = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MON3 = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const pad2 = n => String(n).padStart(2, "0");
+const parseDT = s => { const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2})/).slice(1).map(Number); return Date.UTC(m[2], m[1] - 1, m[0], m[3], m[4]); };
+const signed = (v, dec) => { const a = Math.abs(v); if (a < Math.pow(10, -dec) / 2) return (v < 0 ? "-" : "+") + (0).toFixed(dec); return (v < 0 ? "-" : "+") + a.toFixed(dec); };
+const fmtShort = d => pad2(d.getUTCDate()) + " " + MON3[d.getUTCMonth()];
+const fmtFull = d => pad2(d.getUTCDate()) + " " + MON3[d.getUTCMonth()] + " " + d.getUTCFullYear();
+
+function tzLabel(off) {
+  const abs = Math.abs(off);
+  const h = Math.floor(abs);
+  const m = Math.round((abs - h) * 60);
+  return "UTC" + (off < 0 ? "-" : "+") + h + (m ? ":" + pad2(m) : "");
+}
+function currentOffset() {
+  return -new Date().getTimezoneOffset() / 60;
+}
+
+function analyze(trades, off) {
+  const T = trades.map(t => {
+    const ts = parseDT(t[1]) + off * 3600e3, dt = new Date(ts);
+    return { acct: t[0], ts, dow: dt.getUTCDay(), hour: dt.getUTCHours(), R: t[2], p: t[3], dt };
+  });
+  T.sort((a, b) => a.ts - b.ts);
+  const days = {}, hours = {}, cells = {};
+  let wins = 0, sumR = 0, sumP = 0, run = 0;
+  const cum = [];
+  for (const t of T) {
+    if (t.p > 0) wins++;
+    sumR += t.R; sumP += t.p; run += t.R; cum.push(run);
+    (days[t.dow] = days[t.dow] || []).push(t);
+    (hours[t.hour] = hours[t.hour] || []).push(t);
+    const k = t.dow + ":" + t.hour;
+    (cells[k] = cells[k] || []).push(t);
+  }
+  const agg = a => { const n = a.length, w = a.filter(t => t.p > 0).length, s = a.reduce((x, t) => x + t.R, 0), p = a.reduce((x, t) => x + t.p, 0); return { n, w, s, p, avg: s / n, wr: w / n * 100 }; };
+  const dayOrder = [1, 2, 3, 4, 5, 6, 0];
+  const dayKeys = Object.keys(days).map(Number).sort((a, b) => dayOrder.indexOf(a) - dayOrder.indexOf(b));
+  const hourKeys = Object.keys(hours).map(Number).sort((a, b) => a - b);
+  const dA = {}, hA = {}, cA = {}, aA = {};
+  dayKeys.forEach(k => dA[k] = agg(days[k]));
+  hourKeys.forEach(k => hA[k] = agg(hours[k]));
+  Object.keys(cells).forEach(k => cA[k] = agg(cells[k]));
+  const accts = {};
+  T.forEach(t => { (accts[t.acct] = accts[t.acct] || []).push(t); });
+  Object.keys(accts).forEach(k => aA[k] = agg(accts[k]));
+  return { T, cum, dA, hA, cA, aA, dayKeys, hourKeys, n: T.length, wins, sumR, sumP, range: [T[0].dt, T[T.length - 1].dt] };
+}
+
+function bestWindow(A) {
+  let bd = null, bh = null;
+  A.dayKeys.forEach(k => { if (!bd || A.dA[k].avg > bd.avg) bd = { k, avg: A.dA[k].avg }; });
+  A.hourKeys.forEach(k => { if (!bh || A.hA[k].avg > bh.avg) bh = { k, avg: A.hA[k].avg }; });
+  return DAYS3[bd.k] + " " + pad2(bh.k) + "h";
+}
+
+function barChart(items, mode) {
+  const W = 720, H = 250, L = 46, R = 8, T = 16, B = 30;
+  const vals = items.map(i => i.v);
+  const max = Math.max.apply(null, vals.map(Math.abs).concat([1e-9]));
+  const plotH = H - T - B;
+  const band = (W - L - R) / items.length;
+  const bw = Math.min(band * 0.58, 44);
+  const ax = T + plotH / 2;
+  const y = v => T + plotH / 2 * (1 - v / max);
+  let s = '<svg class="chart-svg" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet">';
+  for (const t of [1, -1]) {
+    const vv = max / 2 * t;
+    s += '<line x1="' + L + '" y1="' + y(vv) + '" x2="' + (W - R) + '" y2="' + y(vv) + '" stroke="#332C24" stroke-width="1"/>';
+    s += '<text x="' + (L - 6) + '" y="' + (y(vv) + 3) + '" text-anchor="end" font-size="9" fill="#948B7C">' + (Math.abs(vv) >= 100 ? Math.round(vv) : vv.toFixed(1)) + '</text>';
+  }
+  s += '<line x1="' + L + '" y1="' + ax + '" x2="' + (W - R) + '" y2="' + ax + '" stroke="#4A4238" stroke-width="1"/>';
+  items.forEach((it, i) => {
+    const x = L + band * i + band / 2;
+    const v = it.v;
+    const h = Math.abs(v) / max * (plotH / 2);
+    const fill = mode === "n" ? "#C9962C" : (v < -1e-9 ? "#D9534F" : (v > 1e-9 ? "#4CAF7D" : "#5A5248"));
+    s += '<rect x="' + (x - bw / 2) + '" y="' + (v >= 0 ? ax - h : ax) + '" width="' + bw + '" height="' + Math.max(h, 1) + '" fill="' + fill + '" opacity="0.9"/>';
+    const ly = v >= 0 ? ax - h - 4 : ax + h + 11;
+    s += '<text x="' + x + '" y="' + ly + '" text-anchor="middle" font-size="9" fill="' + (v < -1e-9 ? "#D9534F" : "#E3B95A") + '">' + (mode === "n" ? v : signed(v, 1)) + '</text>';
+    s += '<text x="' + x + '" y="' + (H - 8) + '" text-anchor="middle" font-size="9.5" fill="#948B7C">' + it.label + '</text>';
+  });
+  return s + '</svg>';
+}
+
+function lineChart(A) {
+  const W = 720, H = 250, L = 46, R = 8, T = 16, B = 30;
+  const vals = A.cum;
+  const max = Math.max.apply(null, vals.map(Math.abs).concat([1e-9]));
+  const y = v => T + (H - T - B) / 2 * (1 - v / max);
+  const X = i => L + (W - L - R) * i / Math.max(vals.length - 1, 1);
+  let s = '<svg class="chart-svg" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet">';
+  const ax = y(0);
+  s += '<line x1="' + L + '" y1="' + ax + '" x2="' + (W - R) + '" y2="' + ax + '" stroke="#4A4238" stroke-width="1"/>';
+  for (const t of [1, -1]) {
+    const vv = max / 2 * t;
+    s += '<line x1="' + L + '" y1="' + y(vv) + '" x2="' + (W - R) + '" y2="' + y(vv) + '" stroke="#332C24" stroke-width="1"/>';
+    s += '<text x="' + (L - 6) + '" y="' + (y(vv) + 3) + '" text-anchor="end" font-size="9" fill="#948B7C">' + (Math.abs(vv) >= 100 ? Math.round(vv) : vv.toFixed(1)) + '</text>';
+  }
+  const pts = vals.map((v, i) => X(i).toFixed(1) + "," + y(v).toFixed(1));
+  s += '<polyline points="' + pts.join(" ") + '" fill="none" stroke="#C9962C" stroke-width="1.5"/>';
+  s += '<polygon points="' + L + ',' + ax + ' ' + pts.join(" ") + ' ' + (W - R) + ',' + ax + '" fill="rgba(201,150,44,0.10)"/>';
+  s += '<text x="' + L + '" y="' + (H - 8) + '" font-size="9.5" fill="#948B7C">' + fmtShort(A.range[0]) + '</text>';
+  s += '<text x="' + (W - R) + '" y="' + (H - 8) + '" text-anchor="end" font-size="9.5" fill="#948B7C">' + fmtShort(A.range[1]) + '</text>';
+  return s + '</svg>';
+}
+
+function dataTable(title, rows) {
+  let s = '<table class="data"><tr><th>' + title + '</th><th>Trades</th><th>Win Rate</th><th>Avg R</th><th>Total P&amp;L</th></tr>';
+  rows.forEach(r => {
+    s += '<tr><td>' + r.label + '</td><td class="num">' + r.n + '</td><td class="num">' + r.wr.toFixed(1) + '%</td>'
+      + '<td class="num ' + (r.avg < 0 ? "neg" : "pos") + '">' + signed(r.avg, 2) + '</td>'
+      + '<td class="num ' + (r.p < 0 ? "neg" : "pos") + '">' + signed(r.p, 2) + '</td></tr>';
+  });
+  return s + '</table>';
+}
+
+function heatmapSVG(A) {
+  const colHours = A.hourKeys.slice();
+  let rows = [1, 2, 3, 4, 5];
+  if (A.dayKeys.some(k => k === 0)) rows.push(0);
+  if (A.dayKeys.some(k => k === 6)) rows.push(6);
+  let s = '<table class="heatmap"><tr><th></th>';
+  colHours.forEach(h => s += '<th>' + pad2(h) + 'h</th>');
+  s += '</tr>';
+  let small = 0;
+  const found = {};
+  rows.forEach(d => {
+    s += '<tr><td class="wd-label">' + DAYS3[d] + '</td>';
+    colHours.forEach(h => {
+      const k = d + ":" + h;
+      const c = A.cA[k];
+      if (!c) { s += '<td class="heat-cell empty">&middot;</td>'; return; }
+      found[k] = true;
+      if (c.n < 3) small++;
+      const alpha = Math.min(0.65, 0.10 + 0.018 * Math.abs(c.avg));
+      const col = c.avg < 0 ? "217,83,79" : "76,175,125";
+      s += '<td class="heat-cell" style="background:rgba(' + col + ',' + alpha.toFixed(2) + ')" title="' + DAYS_FULL[d] + ' ' + pad2(h) + ':00 — ' + c.n + ' trades, avg R ' + signed(c.avg, 1) + '"><span class="heat-r">' + signed(c.avg, 1) + '</span><span class="heat-n">' + c.n + 't</span></td>';
+    });
+    s += '</tr>';
+  });
+  s += '</table>';
+  return { html: s, small };
+}
+
+function render() {
+  const offRaw = document.getElementById("tz").value;
+  const auto = offRaw === "auto";
+  const off = auto ? currentOffset() : +offRaw;
+  const A = analyze(TRADES, off);
+  const tzl = tzLabel(off);
+  if (auto) { const o = document.getElementById("tzAuto"); if (o) o.textContent = "My time (" + tzl + ")"; }
+  document.getElementById("sTz").textContent = tzl;
+  document.getElementById("tzdesc").textContent = tzl;
+  document.getElementById("sRange").textContent = fmtFull(A.range[0]) + " → " + fmtFull(A.range[1]);
+  document.getElementById("sTrades").textContent = A.n;
+  document.getElementById("sAccts").textContent = Object.keys(A.aA).length;
+  document.getElementById("sTradesV").textContent = A.n;
+  document.getElementById("sWr").textContent = (A.wins / A.n * 100).toFixed(1) + "%";
+  const avgEl = document.getElementById("sAvg");
+  avgEl.textContent = signed(A.sumR / A.n, 2);
+  avgEl.className = "value" + (A.sumR / A.n < 0 ? " neg" : " pos");
+  const pnlEl = document.getElementById("sPnl");
+  pnlEl.textContent = signed(A.sumP, 2);
+  pnlEl.className = "value" + (A.sumP < 0 ? " neg" : " pos");
+  document.getElementById("sBest").textContent = bestWindow(A);
+  document.getElementById("equity").innerHTML = lineChart(A);
+
+  document.getElementById("dayChartR").innerHTML = barChart(A.dayKeys.map(k => ({ label: DAYS3[k], v: A.dA[k].avg })), "r");
+  document.getElementById("dayChartN").innerHTML = barChart(A.dayKeys.map(k => ({ label: DAYS3[k], v: A.dA[k].n })), "n");
+  document.getElementById("dayTable").innerHTML = dataTable("Day", A.dayKeys.map(k => ({ label: DAYS_FULL[k], n: A.dA[k].n, wr: A.dA[k].wr, avg: A.dA[k].avg, p: A.dA[k].p })));
+
+  document.getElementById("hourChartR").innerHTML = barChart(A.hourKeys.map(h => ({ label: pad2(h) + ":00", v: A.hA[h].avg })), "r");
+  document.getElementById("hourChartN").innerHTML = barChart(A.hourKeys.map(h => ({ label: pad2(h) + ":00", v: A.hA[h].n })), "n");
+  document.getElementById("hourTable").innerHTML = dataTable("Hour", A.hourKeys.map(h => ({ label: pad2(h) + ":00", n: A.hA[h].n, wr: A.hA[h].wr, avg: A.hA[h].avg, p: A.hA[h].p })));
+
+  const hm = heatmapSVG(A);
+  document.getElementById("heatmap").innerHTML = hm.html;
+  document.getElementById("cellsNote").textContent = hm.small + " weekday/hour cells have fewer than 3 trades — treat those numbers as early signal, not proof.";
+
+  let bd = null, wd = null, bh = null, wh = null, busiest = null;
+  A.dayKeys.forEach(k => { if (!bd || A.dA[k].avg > bd.a.avg) bd = { k, a: A.dA[k] }; if (!wd || A.dA[k].avg < wd.a.avg) wd = { k, a: A.dA[k] }; });
+  A.hourKeys.forEach(h => { if (!bh || A.hA[h].avg > bh.a.avg) bh = { h, a: A.hA[h] }; if (!wh || A.hA[h].avg < wh.a.avg) wh = { h, a: A.hA[h] }; if (!busiest || A.hA[h].n > busiest.a.n) busiest = { h, a: A.hA[h] }; });
+  const lis = [
+    "<li><b>Best day:</b> " + DAYS_FULL[bd.k] + " — avg R " + signed(bd.a.avg, 2) + " over " + bd.a.n + " trades.</li>",
+    "<li><b>Worst day:</b> " + DAYS_FULL[wd.k] + " — avg R " + signed(wd.a.avg, 2) + " over " + wd.a.n + " trades" + (wd.a.avg < 0 ? " — consider sitting this one out or cutting size." : "") + "</li>",
+    "<li><b>Best hour:</b> " + pad2(bh.h) + ":00 — avg R " + signed(bh.a.avg, 2) + " over " + bh.a.n + " trades.</li>",
+    "<li><b>Worst hour:</b> " + pad2(wh.h) + ":00 — avg R " + signed(wh.a.avg, 2) + " over " + wh.a.n + " trades" + (wh.a.avg < 0 ? " — this window is bleeding expectancy." : "") + "</li>",
+    "<li><b>Busiest hour:</b> " + pad2(busiest.h) + ":00 with " + busiest.a.n + " trades — check whether volume there matches the edge, or if you're just present out of habit.</li>",
+    "<li>Read Avg R together with trade count. A great number on 2–3 trades is noise, not an edge — wait for more data before acting on it.</li>"
+  ];
+  document.getElementById("takeaways").innerHTML = lis.join("");
+
+  document.getElementById("acctTable").innerHTML = dataTable("Account", Object.keys(A.aA).map(k => ({ label: k, n: A.aA[k].n, wr: A.aA[k].wr, avg: A.aA[k].avg, p: A.aA[k].p })));
+}
+
+document.getElementById("tz").addEventListener("change", render);
+render();
+</script>
+</body>
+</html>
