@@ -1,5 +1,5 @@
 node_modules/
 dist/
-.session.json
+.vercel/
 .env
-.session-cookies.txt
+*.log
